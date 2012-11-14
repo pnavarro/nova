@@ -29,6 +29,7 @@ from nova.virt import driver
 from nova.virt.hyperv import baseops
 from nova.virt.hyperv import vmutils
 from nova.virt.hyperv import volumeutils
+from nova.virt.hyperv import volumeutilsV2
 
 LOG = logging.getLogger(__name__)
 
@@ -63,7 +64,13 @@ class VolumeOps(baseops.BaseOps):
             CONF.hyperv_attaching_volume_retry_count
         self._wait_between_attach_retry = \
             CONF.hyperv_wait_between_attach_retry
-        self._volutils = volumeutils.VolumeUtils()
+        self._volutils = self._get_volume_utils()
+
+    def _get_volume_utils(self):
+        if(CONF.hyperv_os_version < 2012):
+            return volumeutils.VolumeUtils()
+        else:
+            return volumeutilsV2.VolumeUtilsV2()
 
     def attach_boot_volume(self, block_device_info, vm_name):
         """Attach the boot volume to the IDE controller"""
@@ -96,7 +103,7 @@ class VolumeOps(baseops.BaseOps):
             self._attach_volume_to_controller(ctrller, 0, mounted_disk, vm)
         except Exception as exn:
             LOG.exception(_('Attach boot from volume failed: %s'), exn)
-            self._volutils.logout_storage_target(self._conn_wmi, target_iqn)
+            self._volutils.logout_storage_target(target_iqn)
             raise vmutils.HyperVException(
                 _('Unable to attach boot volume to instance %s')
                     % vm_name)
@@ -133,7 +140,7 @@ class VolumeOps(baseops.BaseOps):
                     mounted_disk, vm)
         except Exception as exn:
             LOG.exception(_('Attach volume failed: %s'), exn)
-            self._volutils.logout_storage_target(self._conn_wmi, target_iqn)
+            self._volutils.logout_storage_target(target_iqn)
             raise vmutils.HyperVException(
                 _('Unable to attach volume to instance %s')
                     % instance_name)
@@ -199,7 +206,7 @@ class VolumeOps(baseops.BaseOps):
                 _('Failed to remove volume from VM %s') %
                 instance_name)
         #Sending logout
-        self._volutils.logout_storage_target(self._conn_wmi, target_iqn)
+        self._volutils.logout_storage_target(target_iqn)
 
     def get_volume_connector(self, instance):
         if not self._initiator:

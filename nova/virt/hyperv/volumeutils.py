@@ -26,7 +26,6 @@ import time
 
 from nova import block_device
 from nova import config
-from nova import flags
 from nova.openstack.common import log as logging
 from nova.virt import driver
 from nova.virt.hyperv import vmutils
@@ -40,6 +39,10 @@ CONF = config.CONF
 
 
 class VolumeUtils(object):
+
+        def __init__(self, conn_wmi):
+            self._conn_wmi = conn_wmi
+
         def execute(self, *args, **kwargs):
             proc = subprocess.Popen(
                 [args],
@@ -92,10 +95,10 @@ class VolumeUtils(object):
             #Waiting the disk to be mounted. Research this
             time.sleep(CONF.hyperv_wait_between_attach_retry)
 
-        def logout_storage_target(self, _conn_wmi, target_iqn):
+        def logout_storage_target(self, target_iqn):
             """ Logs out storage target through its session id """
 
-            sessions = _conn_wmi.query(
+            sessions = self._conn_wmi.query(
                     "SELECT * FROM MSiSCSIInitiator_SessionClass \
                     WHERE TargetName='" + target_iqn + "'")
             for session in sessions:

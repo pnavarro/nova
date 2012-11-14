@@ -59,7 +59,7 @@ class HyperVAPITestCase(basetestcase.BaseTestCase):
         self._update_image_raise_exception = False
         self._post_method_called = False
         self._recover_method_called = False
-        self._volume_target_portal = '192.168.1.112:3260'
+        self._volume_target_portal = '192.168.235.132:3260'
         self._volume_id = '10958016-e196-42e3-9e7f-5d8927ae3099'
         self._context = context.RequestContext(self._user_id, self._project_id)
 
@@ -99,7 +99,6 @@ class HyperVAPITestCase(basetestcase.BaseTestCase):
             'shutil',
             'uuid',
             'time',
-            'subprocess',
             'multiprocessing',
             '_winreg'
         ]
@@ -472,13 +471,3 @@ class HyperVAPITestCase(basetestcase.BaseTestCase):
         sessions_exist = self._hypervutils.iscsi_volume_sessions_exist(
             self._volume_id)
         self.assertTrue(sessions_exist)
-
-    def test_attach_volume_with_target_connection_failure(self):
-        self._spawn_instance(True)
-
-        target = 'nonexistingtarget:3260'
-        connection_info = db_fakes.get_fake_volume_info_data(target,
-            self._volume_id)
-
-        self.assertRaises(vmutils.HyperVException, self._conn.attach_volume,
-            connection_info, self._instance_data["name"], '/dev/sdc')

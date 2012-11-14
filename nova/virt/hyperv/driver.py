@@ -61,6 +61,8 @@ Using the Python WMI library:
 
 """
 
+from nova import config
+from nova.openstack.common import cfg
 from nova.openstack.common import log as logging
 from nova.virt import driver
 from nova.virt.hyperv import hostops
@@ -70,6 +72,15 @@ from nova.virt.hyperv import vmops
 from nova.virt.hyperv import volumeops
 
 LOG = logging.getLogger(__name__)
+
+driver_opts = [
+    cfg.IntOpt('hyperv_os_version',
+        default=2012,
+        help='The Hyper-V Windows version ')
+    ]
+
+CONF = config.CONF
+CONF.register_opts(driver_opts)
 
 
 class HyperVDriver(driver.ComputeDriver):
