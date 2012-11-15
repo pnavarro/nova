@@ -22,7 +22,6 @@ import time
 
 from nova import block_device
 from nova import config
-from nova import flags
 from nova.openstack.common import cfg
 from nova.openstack.common import log as logging
 from nova.virt import driver
@@ -68,9 +67,9 @@ class VolumeOps(baseops.BaseOps):
 
     def _get_volume_utils(self):
         if(CONF.hyperv_os_version < 2012):
-            return volumeutils.VolumeUtils()
+            return volumeutils.VolumeUtils(self._conn_wmi)
         else:
-            return volumeutilsV2.VolumeUtilsV2()
+            return volumeutilsV2.VolumeUtilsV2(self._conn_storage)
 
     def attach_boot_volume(self, block_device_info, vm_name):
         """Attach the boot volume to the IDE controller"""

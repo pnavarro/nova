@@ -17,24 +17,21 @@
 
 """
 Helper methods for operations related to the management of volumes,
-and storage repositories
+and storage repositories for Windows 2012
 """
-
-import sys
 import time
 
 from nova import config
 from nova.openstack.common import log as logging
-from nova.virt.hyperv import volumeutils
+from nova.virt.hyperv import basevolumeutils
 
 LOG = logging.getLogger(__name__)
 CONF = config.CONF
 
 
-class VolumeUtilsV2(volumeutils.VolumeUtils):
+class VolumeUtilsV2(basevolumeutils.BaseVolumeUtils):
 
-        def _init_(self, conn_storage):
-            super(VolumeUtilsV2, self).__init__()
+        def __init__(self, conn_storage):
             self._conn_storage = conn_storage
 
         def login_storage_target(self, target_lun, target_iqn,

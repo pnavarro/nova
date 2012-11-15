@@ -28,7 +28,6 @@ from nova.compute import power_state
 from nova import config
 from nova import context
 from nova import db
-from nova import flags
 from nova.image import glance
 from nova.tests import fake_network
 from nova.tests.hyperv import basetestcase
@@ -60,7 +59,7 @@ class HyperVAPITestCase(basetestcase.BaseTestCase):
         self._post_method_called = False
         self._recover_method_called = False
         self._volume_target_portal = '192.168.235.132:3260'
-        self._volume_id = '10958016-e196-42e3-9e7f-5d8927ae3099'
+        self._volume_id = 'c4e6d225-6150-44a9-9490-51424e05cd6e'
         self._context = context.RequestContext(self._user_id, self._project_id)
 
         self._setup_stubs()
@@ -105,21 +104,25 @@ class HyperVAPITestCase(basetestcase.BaseTestCase):
 
         # Modules in which the mocks are going to be injected
         from nova.virt.hyperv import baseops
+        from nova.virt.hyperv import basevolumeutils
         from nova.virt.hyperv import hostops
         from nova.virt.hyperv import livemigrationops
         from nova.virt.hyperv import snapshotops
         from nova.virt.hyperv import vmops
         from nova.virt.hyperv import volumeops
         from nova.virt.hyperv import volumeutils
+        from nova.virt.hyperv import volumeutilsV2
 
         modules_to_test = [
             driver_hyperv,
+            basevolumeutils,
             baseops,
             hostops,
             vmops,
             vmutils,
             volumeops,
             volumeutils,
+            volumeutilsV2,
             snapshotops,
             livemigrationops,
             hypervutils,
