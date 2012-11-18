@@ -20,9 +20,9 @@ Helper methods for operations related to the management of volumes,
 and storage repositories
 """
 
-import subprocess
 import time
 
+from eventlet.green import subprocess
 from nova import config
 from nova.openstack.common import log as logging
 from nova.virt.hyperv import vmutils
