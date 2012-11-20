@@ -22,7 +22,6 @@ import time
 import uuid
 
 from nova import config
-from nova import flags
 from nova.openstack.common import cfg
 from nova.openstack.common import jsonutils
 from nova.openstack.common import log as logging
@@ -50,7 +49,7 @@ xenapi_agent_opts = [
                     'configuration is not injected into the image. '
                     'Used if compute_driver=xenapi.XenAPIDriver and '
                     ' flat_injected=True'),
-    cfg.StrOpt('xenapi_disable_agent',
+    cfg.BoolOpt('xenapi_disable_agent',
                default=False,
                help='Disable XenAPI agent. Reduces the amount of time '
                     'it takes nova to detect that a VM has started, when '

@@ -14,6 +14,7 @@
 #    under the License.
 
 import base64
+import uuid
 
 import mox
 import webob
@@ -25,14 +26,13 @@ from nova.compute import vm_states
 from nova import config
 from nova import db
 from nova import exception
-from nova import flags
 from nova.image import glance
 from nova.openstack.common import importutils
 from nova import test
 from nova.tests.api.openstack import fakes
 from nova.tests.image import fake
 from nova.tests import matchers
-from nova import utils
+
 
 CONF = config.CONF
 FAKE_UUID = fakes.FAKE_UUID
@@ -177,7 +177,7 @@ class ServerActionsControllerTest(test.TestCase):
         req = fakes.HTTPRequest.blank(self.url)
         self.assertRaises(webob.exc.HTTPNotFound,
                           self.controller._action_reboot,
-                          req, str(utils.gen_uuid()), body)
+                          req, str(uuid.uuid4()), body)
 
     def test_reboot_raises_conflict_on_invalid_state(self):
         body = dict(reboot=dict(type="HARD"))

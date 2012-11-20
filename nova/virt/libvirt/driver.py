@@ -62,7 +62,6 @@ from nova.compute import vm_mode
 from nova import config
 from nova import context as nova_context
 from nova import exception
-from nova import flags
 from nova.image import glance
 from nova.openstack.common import cfg
 from nova.openstack.common import excutils
@@ -1442,12 +1441,12 @@ class LibvirtDriver(driver.ComputeDriver):
                          instance=instance)
 
         if CONF.libvirt_type == 'lxc':
-            disk.setup_container(basepath('disk'),
+            disk.setup_container(image('disk').path,
                                  container_dir=container_dir,
                                  use_cow=CONF.use_cow_images)
 
         if CONF.libvirt_type == 'uml':
-            libvirt_utils.chown(basepath('disk'), 'root')
+            libvirt_utils.chown(image('disk').path, 'root')
 
     @staticmethod
     def _volume_in_mapping(mount_device, block_device_info):

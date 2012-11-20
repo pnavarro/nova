@@ -23,6 +23,7 @@ import copy
 import datetime
 import sys
 import time
+import uuid
 
 import mox
 
@@ -40,7 +41,6 @@ from nova import config
 from nova import context
 from nova import db
 from nova import exception
-from nova import flags
 from nova.network import api as network_api
 from nova.network import model as network_model
 from nova.openstack.common import importutils
@@ -2397,7 +2397,7 @@ class ComputeTestCase(BaseTestCase):
 
     def test_add_instance_fault(self):
         exc_info = None
-        instance_uuid = str(utils.gen_uuid())
+        instance_uuid = str(uuid.uuid4())
 
         def fake_db_fault_create(ctxt, values):
             self.assertTrue(values['details'].startswith('test'))
@@ -2425,7 +2425,7 @@ class ComputeTestCase(BaseTestCase):
 
     def test_add_instance_fault_with_remote_error(self):
         exc_info = None
-        instance_uuid = str(utils.gen_uuid())
+        instance_uuid = str(uuid.uuid4())
 
         def fake_db_fault_create(ctxt, values):
             self.assertTrue(values['details'].startswith('Remote error'))
@@ -2454,7 +2454,7 @@ class ComputeTestCase(BaseTestCase):
 
     def test_add_instance_fault_user_error(self):
         exc_info = None
-        instance_uuid = str(utils.gen_uuid())
+        instance_uuid = str(uuid.uuid4())
 
         def fake_db_fault_create(ctxt, values):
 
@@ -2480,7 +2480,7 @@ class ComputeTestCase(BaseTestCase):
             user_exc, exc_info)
 
     def test_add_instance_fault_no_exc_info(self):
-        instance_uuid = str(utils.gen_uuid())
+        instance_uuid = str(uuid.uuid4())
 
         def fake_db_fault_create(ctxt, values):
             expected = {
@@ -3036,7 +3036,7 @@ class ComputeAPITestCase(BaseTestCase):
         db.instance_destroy(self.context, refs[0]['uuid'])
 
     def test_default_hostname_generator(self):
-        fake_uuids = [str(utils.gen_uuid()) for x in xrange(4)]
+        fake_uuids = [str(uuid.uuid4()) for x in xrange(4)]
 
         orig_populate = self.compute_api._populate_instance_for_create
 
@@ -3979,6 +3979,7 @@ class ComputeAPITestCase(BaseTestCase):
         instance = self._create_fake_instance(dict(host='host2'))
         instance = db.instance_get_by_uuid(self.context, instance['uuid'])
         instance = jsonutils.to_primitive(instance)
+        instance['instance_type']['extra_specs'] = []
         orig_instance_type = instance['instance_type']
         self.compute.run_instance(self.context, instance=instance)
         # We need to set the host to something 'known'.  Unfortunately,
@@ -4695,6 +4696,23 @@ class ComputeAPITestCase(BaseTestCase):
 
         db.instance_destroy(self.context, instance['uuid'])
 
+    def test_get_backdoor_port(self):
+        """Test api call to get backdoor_port"""
+        fake_backdoor_port = 59697
+
+        self.mox.StubOutWithMock(rpc, 'call')
+
+        rpc_msg = {'method': 'get_backdoor_port',
+                   'args': {},
+                   'version': compute_rpcapi.ComputeAPI.BASE_RPC_API_VERSION}
+        rpc.call(self.context, 'compute.fake_host', rpc_msg,
+                 None).AndReturn(fake_backdoor_port)
+
+        self.mox.ReplayAll()
+
+        port = self.compute_api.get_backdoor_port(self.context, 'fake_host')
+        self.assertEqual(port, fake_backdoor_port)
+
     def test_console_output(self):
         fake_instance = {'uuid': 'fake_uuid',
                          'host': 'fake_compute_host'}
@@ -5143,6 +5161,19 @@ class ComputeAPIAggrTestCase(BaseTestCase):
         self.assertRaises(exception.ComputeHostNotFound,
                           self.api.remove_host_from_aggregate,
                           self.context, aggr['id'], 'invalid_host')
+
+
+class ComputeBackdoorPortTestCase(BaseTestCase):
+    """This is for unit test coverage of backdoor port rpc"""
+
+    def setUp(self):
+        super(ComputeBackdoorPortTestCase, self).setUp()
+        self.context = context.get_admin_context()
+        self.compute.backdoor_port = 59697
+
+    def test_get_backdoor_port(self):
+        port = self.compute.get_backdoor_port(self.context)
+        self.assertEqual(port, self.compute.backdoor_port)
 
 
 class ComputeAggrTestCase(BaseTestCase):

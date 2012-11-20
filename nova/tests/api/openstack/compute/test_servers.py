@@ -19,6 +19,7 @@
 import base64
 import datetime
 import urlparse
+import uuid
 
 import iso8601
 from lxml import etree
@@ -39,7 +40,6 @@ from nova import context
 from nova import db
 from nova.db.sqlalchemy import models
 from nova import exception
-from nova import flags
 from nova.network import manager
 from nova.network.quantumv2 import api as quantum_api
 from nova.openstack.common import jsonutils
@@ -49,7 +49,7 @@ from nova.tests.api.openstack import fakes
 from nova.tests import fake_network
 from nova.tests.image import fake
 from nova.tests import matchers
-from nova import utils
+
 
 CONF = config.CONF
 
@@ -238,7 +238,7 @@ class ServersControllerTest(test.TestCase):
         """Create two servers with the same host and different
            project_ids and check that the hostId's are unique"""
         def return_instance_with_host(self, *args):
-            project_id = str(utils.gen_uuid())
+            project_id = str(uuid.uuid4())
             return fakes.stub_instance(id=1, uuid=FAKE_UUID,
                                        project_id=project_id,
                                        host='fake_host')
@@ -517,7 +517,7 @@ class ServersControllerTest(test.TestCase):
 
         self.stubs.Set(db, 'instance_get_by_uuid', fake_instance_get)
 
-        server_id = str(utils.gen_uuid())
+        server_id = str(uuid.uuid4())
         req = fakes.HTTPRequest.blank('/v2/fake/servers/%s/ips' % server_id)
         self.assertRaises(webob.exc.HTTPNotFound,
                           self.ips_controller.index, req, server_id)
@@ -674,7 +674,7 @@ class ServersControllerTest(test.TestCase):
                           self.controller.index, req)
 
     def test_get_servers_with_bad_option(self):
-        server_uuid = str(utils.gen_uuid())
+        server_uuid = str(uuid.uuid4())
 
         def fake_get_all(compute_self, context, search_opts=None,
                          sort_key=None, sort_dir='desc',
@@ -690,7 +690,7 @@ class ServersControllerTest(test.TestCase):
         self.assertEqual(servers[0]['id'], server_uuid)
 
     def test_get_servers_allows_image(self):
-        server_uuid = str(utils.gen_uuid())
+        server_uuid = str(uuid.uuid4())
 
         def fake_get_all(compute_self, context, search_opts=None,
                          sort_key=None, sort_dir='desc',
@@ -773,7 +773,7 @@ class ServersControllerTest(test.TestCase):
         self.assertTrue('servers' in res)
 
     def test_get_servers_allows_flavor(self):
-        server_uuid = str(utils.gen_uuid())
+        server_uuid = str(uuid.uuid4())
 
         def fake_get_all(compute_self, context, search_opts=None,
                          sort_key=None, sort_dir='desc',
@@ -793,7 +793,7 @@ class ServersControllerTest(test.TestCase):
         self.assertEqual(servers[0]['id'], server_uuid)
 
     def test_get_servers_allows_status(self):
-        server_uuid = str(utils.gen_uuid())
+        server_uuid = str(uuid.uuid4())
 
         def fake_get_all(compute_self, context, search_opts=None,
                          sort_key=None, sort_dir='desc',
@@ -825,7 +825,7 @@ class ServersControllerTest(test.TestCase):
                           self.controller.detail, req)
 
     def test_get_servers_deleted_status_as_admin(self):
-        server_uuid = str(utils.gen_uuid())
+        server_uuid = str(uuid.uuid4())
 
         def fake_get_all(compute_self, context, search_opts=None,
                          sort_key=None, sort_dir='desc',
@@ -845,7 +845,7 @@ class ServersControllerTest(test.TestCase):
         self.assertEqual(servers[0]['id'], server_uuid)
 
     def test_get_servers_allows_name(self):
-        server_uuid = str(utils.gen_uuid())
+        server_uuid = str(uuid.uuid4())
 
         def fake_get_all(compute_self, context, search_opts=None,
                          sort_key=None, sort_dir='desc',
@@ -864,7 +864,7 @@ class ServersControllerTest(test.TestCase):
         self.assertEqual(servers[0]['id'], server_uuid)
 
     def test_get_servers_allows_changes_since(self):
-        server_uuid = str(utils.gen_uuid())
+        server_uuid = str(uuid.uuid4())
 
         def fake_get_all(compute_self, context, search_opts=None,
                          sort_key=None, sort_dir='desc',
@@ -896,7 +896,7 @@ class ServersControllerTest(test.TestCase):
         context is not admin. Make sure the admin and unknown options
         are stripped before they get to compute_api.get_all()
         """
-        server_uuid = str(utils.gen_uuid())
+        server_uuid = str(uuid.uuid4())
 
         def fake_get_all(compute_self, context, search_opts=None,
                          sort_key=None, sort_dir='desc',
@@ -925,7 +925,7 @@ class ServersControllerTest(test.TestCase):
         """Test getting servers by admin-only or unknown options when
         context is admin. All options should be passed
         """
-        server_uuid = str(utils.gen_uuid())
+        server_uuid = str(uuid.uuid4())
 
         def fake_get_all(compute_self, context, search_opts=None,
                          sort_key=None, sort_dir='desc',
@@ -954,7 +954,7 @@ class ServersControllerTest(test.TestCase):
         """Test getting servers by ip with admin_api enabled and
         admin context
         """
-        server_uuid = str(utils.gen_uuid())
+        server_uuid = str(uuid.uuid4())
 
         def fake_get_all(compute_self, context, search_opts=None,
                          sort_key=None, sort_dir='desc',
@@ -977,7 +977,7 @@ class ServersControllerTest(test.TestCase):
         """Test getting servers by ip6 with admin_api enabled and
         admin context
         """
-        server_uuid = str(utils.gen_uuid())
+        server_uuid = str(uuid.uuid4())
 
         def fake_get_all(compute_self, context, search_opts=None,
                          sort_key=None, sort_dir='desc',
@@ -1700,7 +1700,7 @@ class ServersControllerCreateTest(test.TestCase):
         fakes.stub_out_key_pair_funcs(self.stubs)
         fake.stub_out_image_service(self.stubs)
         fakes.stub_out_nw_api(self.stubs)
-        self.stubs.Set(utils, 'gen_uuid', fake_gen_uuid)
+        self.stubs.Set(uuid, 'uuid4', fake_gen_uuid)
         self.stubs.Set(db, 'instance_add_security_group',
                        return_security_group)
         self.stubs.Set(db, 'project_get_networks',
@@ -2786,7 +2786,6 @@ class ServersControllerCreateTest(test.TestCase):
                     'open': 'stack',
                 },
                 'personality': {},
-                'config_drive': True,
             },
         }
 

@@ -40,6 +40,7 @@ import socket
 import sys
 import time
 import traceback
+import uuid
 
 from eventlet import greenthread
 
@@ -55,7 +56,6 @@ from nova.compute import vm_states
 from nova import config
 import nova.context
 from nova import exception
-from nova import flags
 from nova.image import glance
 from nova import manager
 from nova import network
@@ -265,7 +265,7 @@ class ComputeVirtAPI(virtapi.VirtAPI):
 class ComputeManager(manager.SchedulerDependentManager):
     """Manages the running instances from creation to destruction."""
 
-    RPC_API_VERSION = '2.16'
+    RPC_API_VERSION = '2.17'
 
     def __init__(self, compute_driver=None, *args, **kwargs):
         """Load configuration options and connect to the hypervisor."""
@@ -421,6 +421,10 @@ class ComputeManager(manager.SchedulerDependentManager):
             return self.driver.get_info(instance)["state"]
         except exception.NotFound:
             return power_state.NOSTATE
+
+    def get_backdoor_port(self, context):
+        """Return backdoor port for eventlet_backdoor"""
+        return self.backdoor_port
 
     def get_console_topic(self, context):
         """Retrieves the console host for a project on this host.
@@ -1592,6 +1596,9 @@ class ComputeManager(manager.SchedulerDependentManager):
             self.driver.confirm_migration(migration, instance,
                                           self._legacy_nw_info(network_info))
 
+            rt = self._get_resource_tracker(instance.get('node'))
+            rt.confirm_resize(context, migration)
+
             self._notify_about_instance_usage(
                 context, instance, "resize.confirm.end",
                 network_info=network_info)
@@ -1635,6 +1642,9 @@ class ComputeManager(manager.SchedulerDependentManager):
                                 block_device_info)
 
             self._terminate_volume_connections(context, instance)
+
+            rt = self._get_resource_tracker(instance.get('node'))
+            rt.revert_resize(context, migration, status='reverted_dest')
 
             self.compute_rpcapi.finish_revert_resize(context, instance,
                     migration, migration['source_compute'],
@@ -1706,8 +1716,8 @@ class ComputeManager(manager.SchedulerDependentManager):
                                   vm_state=vm_states.ACTIVE,
                                   task_state=None)
 
-            self.db.migration_update(elevated, migration['id'],
-                    {'status': 'reverted'})
+            rt = self._get_resource_tracker(instance.get('node'))
+            rt.revert_resize(context, migration)
 
             self._notify_about_instance_usage(
                     context, instance, "resize.revert.end")
@@ -1723,6 +1733,29 @@ class ComputeManager(manager.SchedulerDependentManager):
     def _quota_rollback(context, reservations):
         if reservations:
             QUOTAS.rollback(context, reservations)
+
+    def _prep_resize(self, context, image, instance, instance_type,
+            reservations, request_spec, filter_properties):
+
+        if not filter_properties:
+            filter_properties = {}
+
+        same_host = instance['host'] == self.host
+        if same_host and not CONF.allow_resize_to_same_host:
+            self._set_instance_error_state(context, instance['uuid'])
+            msg = _('destination same as source!')
+            raise exception.MigrationError(msg)
+
+        limits = filter_properties.get('limits', {})
+        rt = self._get_resource_tracker(instance.get('node'))
+        with rt.resize_claim(context, instance, instance_type, limits=limits) \
+                as claim:
+            migration_ref = claim.migration
+
+            LOG.audit(_('Migrating'), context=context,
+                    instance=instance)
+            self.compute_rpcapi.resize_instance(context, instance,
+                    migration_ref, image, instance_type, reservations)
 
     @exception.wrap_exception(notifier=notifier, publisher_id=publisher_id())
     @reverts_task_state
@@ -1741,30 +1774,9 @@ class ComputeManager(manager.SchedulerDependentManager):
                     context, instance, current_period=True)
             self._notify_about_instance_usage(
                     context, instance, "resize.prep.start")
-
             try:
-                same_host = instance['host'] == self.host
-                if same_host and not CONF.allow_resize_to_same_host:
-                    self._set_instance_error_state(context, instance['uuid'])
-                    msg = _('destination same as source!')
-                    raise exception.MigrationError(msg)
-
-                old_instance_type = instance['instance_type']
-
-                migration_ref = self.db.migration_create(context.elevated(),
-                        {'instance_uuid': instance['uuid'],
-                         'source_compute': instance['host'],
-                         'dest_compute': self.host,
-                         'dest_host': self.driver.get_host_ip_addr(),
-                         'old_instance_type_id': old_instance_type['id'],
-                         'new_instance_type_id': instance_type['id'],
-                         'status': 'pre-migrating'})
-
-                LOG.audit(_('Migrating'), context=context,
-                        instance=instance)
-                self.compute_rpcapi.resize_instance(context, instance,
-                        migration_ref, image, instance_type, reservations)
-
+                self._prep_resize(context, image, instance, instance_type,
+                        reservations, request_spec, filter_properties)
             except Exception:
                 # try to re-schedule the resize elsewhere:
                 self._reschedule_resize_or_reraise(context, image, instance,
@@ -1836,9 +1848,9 @@ class ComputeManager(manager.SchedulerDependentManager):
                                      migration['id'],
                                      {'status': 'migrating'})
 
-            self._instance_update(context, instance['uuid'],
-                                  task_state=task_states.RESIZE_MIGRATING,
-                                  expected_task_state=task_states.RESIZE_PREP)
+            instance = self._instance_update(context, instance['uuid'],
+                    task_state=task_states.RESIZE_MIGRATING,
+                    expected_task_state=task_states.RESIZE_PREP)
 
             self._notify_about_instance_usage(
                 context, instance, "resize.start", network_info=network_info)
@@ -1860,11 +1872,11 @@ class ComputeManager(manager.SchedulerDependentManager):
                                                  migration['id'],
                                                  {'status': 'post-migrating'})
 
-            self._instance_update(context, instance['uuid'],
-                                  host=migration['dest_compute'],
-                                  task_state=task_states.RESIZE_MIGRATED,
-                                  expected_task_state=task_states.
-                                      RESIZE_MIGRATING)
+            instance = self._instance_update(context, instance['uuid'],
+                    host=migration['dest_compute'],
+                    task_state=task_states.RESIZE_MIGRATED,
+                    expected_task_state=task_states.
+                    RESIZE_MIGRATING)
 
             self.compute_rpcapi.finish_resize(context, instance,
                     migration, image, disk_info,
@@ -1909,7 +1921,7 @@ class ComputeManager(manager.SchedulerDependentManager):
 
         network_info = self._get_instance_nw_info(context, instance)
 
-        self._instance_update(context, instance['uuid'],
+        instance = self._instance_update(context, instance['uuid'],
                               task_state=task_states.RESIZE_FINISH,
                               expected_task_state=task_states.RESIZE_MIGRATED)
 
@@ -2180,7 +2192,7 @@ class ComputeManager(manager.SchedulerDependentManager):
         """Return connection information for a vnc console."""
         context = context.elevated()
         LOG.debug(_("Getting vnc console"), instance=instance)
-        token = str(utils.gen_uuid())
+        token = str(uuid.uuid4())
 
         if console_type == 'novnc':
             # For essex, novncproxy_base_url must include the full path

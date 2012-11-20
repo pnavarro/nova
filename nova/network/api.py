@@ -20,9 +20,9 @@
 import functools
 import inspect
 
+from nova import config
 from nova.db import base
 from nova import exception
-from nova import flags
 from nova.network import model as network_model
 from nova.network import rpcapi as network_rpcapi
 from nova.openstack.common import log as logging
@@ -123,6 +123,9 @@ class API(base.Base):
     def get_floating_ips_by_fixed_address(self, context, fixed_address):
         return self.network_rpcapi.get_floating_ips_by_fixed_address(context,
                 fixed_address)
+
+    def get_backdoor_port(self, context):
+        return self.network_rpcapi.get_backdoor_port(context)
 
     def get_instance_id_by_floating_address(self, context, address):
         # NOTE(tr3buchet): i hate this
@@ -351,7 +354,7 @@ class API(base.Base):
         if self._is_multi_host(context, instance):
             args['floating_addresses'] = \
                 self._get_floating_ip_addresses(context, instance)
-            args['host'] = migration['dest_compute']
+            args['host'] = migration['source_compute']
 
         self.network_rpcapi.migrate_instance_start(context, **args)
 

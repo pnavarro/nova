@@ -137,6 +137,14 @@
             "updated": "%(timestamp)s"
         },
         {
+            "alias": "os-fixed-ips",
+            "description": "Fixed IPs support",
+            "links": [],
+            "name": "FixedIPs",
+            "namespace": "http://docs.openstack.org/compute/ext/fixed_ips/api/v2",
+            "updated": "2012-10-18T13:25:27-06:00"
+        },
+        {
             "alias": "os-flavor-access",
             "description": "%(text)s",
             "links": [],
@@ -214,6 +222,14 @@
             "links": [],
             "name": "Services",
             "namespace": "http://docs.openstack.org/compute/ext/services/api/v2",
+            "updated": "%(timestamp)s"
+        },
+        {
+            "alias": "os-fping",
+            "description": "%(text)s",
+            "links": [],
+            "name": "Fping",
+            "namespace": "http://docs.openstack.org/compute/ext/fping/api/v1.1",
             "updated": "%(timestamp)s"
         },
         {

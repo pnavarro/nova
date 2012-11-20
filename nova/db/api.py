@@ -45,7 +45,6 @@ these objects be simple dictionaries.
 
 from nova import config
 from nova import exception
-from nova import flags
 from nova.openstack.common import cfg
 from nova import utils
 
@@ -406,6 +405,13 @@ def migration_get_unconfirmed_by_dest_compute(context, confirm_window,
             confirm_window, dest_compute)
 
 
+def migration_get_in_progress_by_host(context, host):
+    """Finds all migrations for the given host that are not yet confirmed or
+    reverted.
+    """
+    return IMPL.migration_get_in_progress_by_host(context, host)
+
+
 ####################
 
 
@@ -466,6 +472,11 @@ def fixed_ip_get_by_address(context, address):
     return IMPL.fixed_ip_get_by_address(context, address)
 
 
+def fixed_ip_get_by_address_detailed(context, address):
+    """Get detailed fixed ip info by address or raise if it does not exist."""
+    return IMPL.fixed_ip_get_by_address_detailed(context, address)
+
+
 def fixed_ip_get_by_instance(context, instance_uuid):
     """Get fixed ips by instance or raise if none exist."""
     return IMPL.fixed_ip_get_by_instance(context, instance_uuid)
@@ -479,11 +490,6 @@ def fixed_ip_get_by_network_host(context, network_uuid, host):
 def fixed_ips_by_virtual_interface(context, vif_id):
     """Get fixed ips by virtual interface or raise if none exist."""
     return IMPL.fixed_ips_by_virtual_interface(context, vif_id)
-
-
-def fixed_ip_get_network(context, address):
-    """Get a network for a fixed ip by address."""
-    return IMPL.fixed_ip_get_network(context, address)
 
 
 def fixed_ip_update(context, address, values):
@@ -929,13 +935,6 @@ def quota_class_update(context, class_name, resource, limit):
 
 
 ###################
-
-
-def quota_usage_create(context, project_id, resource, in_use, reserved,
-                       until_refresh):
-    """Create a quota usage for the given project and resource."""
-    return IMPL.quota_usage_create(context, project_id, resource,
-                                   in_use, reserved, until_refresh)
 
 
 def quota_usage_get(context, project_id, resource):

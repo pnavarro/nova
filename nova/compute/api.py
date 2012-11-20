@@ -27,6 +27,7 @@ import re
 import string
 import time
 import urllib
+import uuid
 
 from nova import block_device
 from nova.compute import instance_types
@@ -40,7 +41,6 @@ from nova.consoleauth import rpcapi as consoleauth_rpcapi
 from nova import crypto
 from nova.db import base
 from nova import exception
-from nova import flags
 from nova.image import glance
 from nova import network
 from nova import notifications
@@ -678,7 +678,7 @@ class API(base.Base):
         if not instance.get('uuid'):
             # Generate the instance_uuid here so we can use it
             # for additional setup before creating the DB entry.
-            instance['uuid'] = str(utils.gen_uuid())
+            instance['uuid'] = str(uuid.uuid4())
 
         instance['launch_index'] = 0
         instance['vm_state'] = vm_states.BUILDING
@@ -731,6 +731,10 @@ class API(base.Base):
         self._populate_instance_shutdown_terminate(instance, image,
                                                    block_device_mapping)
 
+        # ensure_default security group is called before the instance
+        # is created so the creation of the default security group is
+        # proxied to the sgh.
+        self.security_group_api.ensure_default(context)
         instance = self.db.instance_create(context, instance)
 
         self._populate_instance_for_bdm(context, instance,
@@ -1563,12 +1567,12 @@ class API(base.Base):
                                task_state=task_states.RESIZE_REVERTING,
                                expected_task_state=None)
 
+        self.db.migration_update(elevated, migration_ref['id'],
+                                 {'status': 'reverting'})
+
         self.compute_rpcapi.revert_resize(context,
                 instance=instance, migration=migration_ref,
                 host=migration_ref['dest_compute'], reservations=reservations)
-
-        self.db.migration_update(elevated, migration_ref['id'],
-                                 {'status': 'reverted'})
 
     @wrap_check_policy
     @check_instance_lock
@@ -1587,13 +1591,13 @@ class API(base.Base):
                                task_state=None,
                                expected_task_state=None)
 
+        self.db.migration_update(elevated, migration_ref['id'],
+                {'status': 'confirming'})
+
         self.compute_rpcapi.confirm_resize(context,
                 instance=instance, migration=migration_ref,
                 host=migration_ref['source_compute'],
                 reservations=reservations)
-
-        self.db.migration_update(elevated, migration_ref['id'],
-                {'status': 'confirmed'})
 
     @staticmethod
     def _resize_quota_delta(context, new_instance_type,
@@ -1803,6 +1807,10 @@ class API(base.Base):
     def get_diagnostics(self, context, instance):
         """Retrieve diagnostics for the given instance."""
         return self.compute_rpcapi.get_diagnostics(context, instance=instance)
+
+    def get_backdoor_port(self, context, host):
+        """Retrieve backdoor port"""
+        return self.compute_rpcapi.get_backdoor_port(context, host)
 
     @wrap_check_policy
     @check_instance_lock

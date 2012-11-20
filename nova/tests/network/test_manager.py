@@ -1524,6 +1524,19 @@ class RPCAllocateTestCase(test.TestCase):
         self.assertEqual(rval, address)
 
 
+class BackdoorPortTestCase(test.TestCase):
+    """Tests nova.network.manager.get_backdoor_port"""
+    def setUp(self):
+        super(BackdoorPortTestCase, self).setUp()
+        self.manager = network_manager.NetworkManager()
+        self.manager.backdoor_port = 59697
+        self.context = context.RequestContext('fake', 'fake')
+
+    def test_backdoor_port(self):
+        port = self.manager.get_backdoor_port(self.context)
+        self.assertEqual(port, self.manager.backdoor_port)
+
+
 class TestFloatingIPManager(network_manager.FloatingIP,
         network_manager.NetworkManager):
     """Dummy manager that implements FloatingIP"""
@@ -1666,11 +1679,14 @@ class FloatingIPTestCase(test.TestCase):
         self.stubs.Set(self.network.l3driver, 'remove_floating_ip',
                        fake_remove_floating_ip)
         self.mox.ReplayAll()
-        floating_ip_addresses = ['172.24.4.23', '172.24.4.24', '172.24.4.25']
-        self.network.migrate_instance_start(self.context, FAKEUUID,
-                                            3, self.project_id,
-                                            'fake_source', 'fake_dest',
-                                            floating_ip_addresses)
+        addresses = ['172.24.4.23', '172.24.4.24', '172.24.4.25']
+        self.network.migrate_instance_start(self.context,
+                                            instance_uuid=FAKEUUID,
+                                            floating_addresses=addresses,
+                                            rxtx_factor=3,
+                                            project_id=self.project_id,
+                                            source='fake_source',
+                                            dest='fake_dest')
 
         self.assertEqual(called['count'], 2)
 
@@ -1704,11 +1720,14 @@ class FloatingIPTestCase(test.TestCase):
         self.stubs.Set(self.network.l3driver, 'add_floating_ip',
                        fake_add_floating_ip)
         self.mox.ReplayAll()
-        floating_ip_addresses = ['172.24.4.23', '172.24.4.24', '172.24.4.25']
-        self.network.migrate_instance_finish(self.context, FAKEUUID,
-                                             3, self.project_id,
-                                             'fake_source', 'fake_dest',
-                                             floating_ip_addresses)
+        addresses = ['172.24.4.23', '172.24.4.24', '172.24.4.25']
+        self.network.migrate_instance_finish(self.context,
+                                             instance_uuid=FAKEUUID,
+                                             floating_addresses=addresses,
+                                             host='fake_dest',
+                                             rxtx_factor=3,
+                                             project_id=self.project_id,
+                                             source='fake_source')
 
         self.assertEqual(called['count'], 2)
 

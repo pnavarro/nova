@@ -23,6 +23,7 @@ import collections
 import copy
 import datetime
 import functools
+import uuid
 
 from sqlalchemy import and_
 from sqlalchemy.exc import IntegrityError
@@ -42,11 +43,9 @@ from nova import db
 from nova.db.sqlalchemy import models
 from nova.db.sqlalchemy.session import get_session
 from nova import exception
-from nova import flags
 from nova.openstack.common import log as logging
 from nova.openstack.common import timeutils
 from nova.openstack.common import uuidutils
-from nova import utils
 
 
 CONF = config.CONF
@@ -1151,6 +1150,30 @@ def fixed_ip_get_by_address(context, address, session=None):
     return result
 
 
+@require_admin_context
+def fixed_ip_get_by_address_detailed(context, address, session=None):
+    """
+    :returns: a tuple of (models.FixedIp, models.Network, models.Instance)
+    """
+    if not session:
+        session = get_session()
+
+    result = session.query(models.FixedIp, models.Network, models.Instance).\
+        filter_by(address=address).\
+        outerjoin((models.Network,
+                   models.Network.id ==
+                   models.FixedIp.network_id)).\
+        outerjoin((models.Instance,
+                   models.Instance.uuid ==
+                   models.FixedIp.instance_uuid)).\
+        first()
+
+    if not result:
+        raise exception.FixedIpNotFoundForAddress(address=address)
+
+    return result
+
+
 @require_context
 def fixed_ip_get_by_instance(context, instance_uuid):
     if not uuidutils.is_uuid_like(instance_uuid):
@@ -1186,12 +1209,6 @@ def fixed_ips_by_virtual_interface(context, vif_id):
                  all()
 
     return result
-
-
-@require_admin_context
-def fixed_ip_get_network(context, address):
-    fixed_ip_ref = fixed_ip_get_by_address(context, address)
-    return fixed_ip_ref.network
 
 
 @require_context
@@ -1350,7 +1367,7 @@ def instance_create(context, values):
 
     instance_ref = models.Instance()
     if not values.get('uuid'):
-        values['uuid'] = str(utils.gen_uuid())
+        values['uuid'] = str(uuid.uuid4())
     instance_ref['info_cache'] = models.InstanceInfoCache()
     info_cache = values.pop('info_cache', None)
     if info_cache is not None:
@@ -1790,6 +1807,18 @@ def _instance_update(context, instance_uuid, values, copy_old_instance=False):
     with session.begin():
         instance_ref = instance_get_by_uuid(context, instance_uuid,
                                             session=session)
+        # TODO(deva): remove extra_specs from here after it is included
+        #             in system_metadata. Until then, the baremetal driver
+        #             needs extra_specs added to instance[]
+        inst_type_ref = _instance_type_get_query(context, session=session).\
+                            filter_by(id=instance_ref['instance_type_id']).\
+                            first()
+        if inst_type_ref:
+            instance_ref['extra_specs'] = \
+                _dict_with_extra_specs(inst_type_ref).get('extra_specs', {})
+        else:
+            instance_ref['extra_specs'] = {}
+
         if "expected_task_state" in values:
             # it is not a db column so always pop out
             expected = values.pop("expected_task_state")
@@ -1819,6 +1848,13 @@ def _instance_update(context, instance_uuid, values, copy_old_instance=False):
 
         instance_ref.update(values)
         instance_ref.save(session=session)
+        if 'instance_type_id' in values:
+            # NOTE(comstud): It appears that sqlalchemy doesn't refresh
+            # the instance_type model after you update the ID.  You end
+            # up with an instance_type model that only has 'id' updated,
+            # but the rest of the model has the data from the old
+            # instance_type.
+            session.refresh(instance_ref['instance_type'])
 
     return (old_instance_ref, instance_ref)
 
@@ -2048,7 +2084,7 @@ def network_create_safe(context, values):
             raise exception.DuplicateVlan(vlan=values['vlan'])
 
     network_ref = models.Network()
-    network_ref['uuid'] = str(utils.gen_uuid())
+    network_ref['uuid'] = str(uuid.uuid4())
     network_ref.update(values)
 
     try:
@@ -2457,13 +2493,6 @@ def quota_usage_get_all_by_project(context, project_id):
 
 
 @require_admin_context
-def quota_usage_create(context, project_id, resource, in_use, reserved,
-                       until_refresh):
-    return _quota_usage_create(context, project_id, resource, in_use,
-                                reserved, until_refresh)
-
-
-@require_admin_context
 def _quota_usage_create(context, project_id, resource, in_use, reserved,
                        until_refresh, session=None):
     quota_usage_ref = models.QuotaUsage()
@@ -2649,7 +2678,7 @@ def quota_reserve(context, resources, quotas, deltas, expire,
             reservations = []
             for resource, delta in deltas.items():
                 reservation = reservation_create(elevated,
-                                                 str(utils.gen_uuid()),
+                                                 str(uuid.uuid4()),
                                                  usages[resource],
                                                  context.project_id,
                                                  resource, delta, expire,
@@ -3348,6 +3377,17 @@ def migration_get_unconfirmed_by_dest_compute(context, confirm_window,
             filter(models.Migration.updated_at <= confirm_window).\
             filter_by(status="finished").\
             filter_by(dest_compute=dest_compute).\
+            all()
+
+
+@require_admin_context
+def migration_get_in_progress_by_host(context, host, session=None):
+
+    return model_query(context, models.Migration, session=session).\
+            filter(or_(models.Migration.source_compute == host,
+                       models.Migration.dest_compute == host)).\
+            filter(~models.Migration.status.in_(['confirmed', 'reverted'])).\
+            options(joinedload('instance')).\
             all()
 
 

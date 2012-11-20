@@ -36,7 +36,6 @@ from nova import config
 from nova import context
 from nova import db
 from nova import exception
-from nova import flags
 from nova.image import s3
 from nova.network import api as network_api
 from nova.openstack.common import log as logging
@@ -95,10 +94,8 @@ def get_instances_with_cached_ips(orig_func, *args, **kwargs):
 class CloudTestCase(test.TestCase):
     def setUp(self):
         super(CloudTestCase, self).setUp()
-        vol_tmpdir = tempfile.mkdtemp()
         self.flags(compute_driver='nova.virt.fake.FakeDriver',
-                   volume_api_class='nova.tests.fake_volume.API',
-                   volumes_dir=vol_tmpdir)
+                   volume_api_class='nova.tests.fake_volume.API')
 
         def fake_show(meh, context, id):
             return {'id': id,

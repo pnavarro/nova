@@ -117,7 +117,6 @@ class ApiTestCase(test.TestCase):
                     'project_id': 'fake_project_id',
                     'floating_addresses': None}
         if multi_host:
-            expected['host'] = 'fake_compute_dest'
             expected['floating_addresses'] = ['fake_float1', 'fake_float2']
         return fake_instance, fake_migration, expected
 
@@ -125,6 +124,7 @@ class ApiTestCase(test.TestCase):
         info = {'kwargs': {}}
         arg1, arg2, expected = self._stub_migrate_instance_calls(
                 'migrate_instance_start', True, info)
+        expected['host'] = 'fake_compute_source'
         self.network_api.migrate_instance_start(self.context, arg1, arg2)
         self.assertEqual(info['kwargs'], expected)
 
@@ -139,6 +139,7 @@ class ApiTestCase(test.TestCase):
         info = {'kwargs': {}}
         arg1, arg2, expected = self._stub_migrate_instance_calls(
                 'migrate_instance_finish', True, info)
+        expected['host'] = 'fake_compute_dest'
         self.network_api.migrate_instance_finish(self.context, arg1, arg2)
         self.assertEqual(info['kwargs'], expected)
 
@@ -197,3 +198,15 @@ class ApiTestCase(test.TestCase):
         instance = {'uuid': FAKE_UUID}
         result = self.network_api._is_multi_host(self.context, instance)
         self.assertEqual(is_multi_host, result)
+
+    def test_get_backdoor_port(self):
+        backdoor_port = 59697
+
+        def fake_get_backdoor_port(ctxt):
+            return backdoor_port
+
+        self.stubs.Set(self.network_api.network_rpcapi, 'get_backdoor_port',
+                       fake_get_backdoor_port)
+
+        port = self.network_api.get_backdoor_port(self.context)
+        self.assertEqual(port, backdoor_port)

@@ -26,12 +26,12 @@ inline callbacks.
 import sys
 import uuid
 
+from fixtures import EnvironmentVariable
 import mox
 import stubout
 import testtools
 
 from nova import config
-from nova import flags
 from nova.openstack.common import cfg
 from nova.openstack.common import log as logging
 from nova.openstack.common import timeutils
@@ -82,6 +82,7 @@ class TestCase(testtools.TestCase):
         self.injected = []
         self._services = []
         self._modules = {}
+        self.useFixture(EnvironmentVariable('http_proxy'))
 
     def tearDown(self):
         """Runs after each test method to tear down test environment."""
@@ -130,8 +131,9 @@ class TestCase(testtools.TestCase):
 
     def flags(self, **kw):
         """Override flag variables for a test."""
+        group = kw.pop('group', None)
         for k, v in kw.iteritems():
-            CONF.set_override(k, v)
+            CONF.set_override(k, v, group)
 
     def start_service(self, name, host=None, **kwargs):
         host = host and host or uuid.uuid4().hex

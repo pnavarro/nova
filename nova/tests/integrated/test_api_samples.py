@@ -27,7 +27,6 @@ from nova.compute import api
 from nova import config
 from nova import context
 from nova import db
-from nova import flags
 from nova.network.manager import NetworkManager
 from nova.openstack.common import importutils
 from nova.openstack.common import jsonutils
@@ -1445,3 +1444,24 @@ class AdminActionsSamplesJsonTest(ServersSampleBase):
 
 class AdminActionsSamplesXmlTest(AdminActionsSamplesJsonTest):
     ctype = 'xml'
+
+
+class ConsolesSampleJsonTests(ServersSampleBase):
+    extension_name = ("nova.api.openstack.compute.contrib"
+                                     ".consoles.Consoles")
+
+    def test_get_vnc_console(self):
+        uuid = self._post_server()
+        response = self._do_post('servers/%s/action' % uuid,
+                                 'get-vnc-console-post-req',
+                                {'action': 'os-getVNCConsole'})
+        self.assertEqual(response.status, 200)
+        subs = self._get_regexes()
+        subs["url"] = \
+            "((https?):((//)|(\\\\))+([\w\d:#@%/;$()~_?\+-=\\\.&](#!)?)*)"
+        return self._verify_response('get-vnc-console-post-resp',
+                                       subs, response)
+
+
+class ConsoleOutputSampleXmlTests(ConsoleOutputSampleJsonTest):
+        ctype = 'xml'

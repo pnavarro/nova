@@ -22,7 +22,6 @@ from nova.compute import rpcapi as compute_rpcapi
 from nova import config
 from nova import context
 from nova import db
-from nova import flags
 from nova.openstack.common import jsonutils
 from nova.openstack.common import rpc
 from nova import test
@@ -173,6 +172,9 @@ class ComputeRpcAPITestCase(test.TestCase):
     def test_host_power_action(self):
         self._test_compute_api('host_power_action', 'call', action='action',
                 host='host')
+
+    def test_get_backdoor_port(self):
+        self._test_compute_api('get_backdoor_port', 'call', host='host')
 
     def test_inject_file(self):
         self._test_compute_api('inject_file', 'cast',

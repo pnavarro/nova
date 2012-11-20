@@ -37,7 +37,6 @@ import struct
 import sys
 import tempfile
 import time
-import uuid
 import weakref
 from xml.sax import saxutils
 
@@ -49,7 +48,6 @@ import netaddr
 
 from nova import config
 from nova import exception
-from nova import flags
 from nova.openstack.common import cfg
 from nova.openstack.common import excutils
 from nova.openstack.common import importutils
@@ -774,10 +772,6 @@ def parse_server_string(server_str):
     except Exception:
         LOG.error(_('Invalid server_string: %s'), server_str)
         return ('', '')
-
-
-def gen_uuid():
-    return uuid.uuid4()
 
 
 def bool_from_str(val):
