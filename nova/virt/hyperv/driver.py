@@ -73,15 +73,6 @@ from nova.virt.hyperv import volumeops
 
 LOG = logging.getLogger(__name__)
 
-driver_opts = [
-    cfg.IntOpt('hyperv_os_version',
-        default=2012,
-        help='The Hyper-V Windows version ')
-    ]
-
-CONF = config.CONF
-CONF.register_opts(driver_opts)
-
 
 class HyperVDriver(driver.ComputeDriver):
     def __init__(self, virtapi):

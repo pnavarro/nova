@@ -60,7 +60,7 @@ class HyperVAPITestCase(basetestcase.BaseTestCase):
         self._post_method_called = False
         self._recover_method_called = False
         self._volume_target_portal = 'testtargetportal:3260'
-        self._volume_id = 'd3f99512-af51-4a75-aee1-79875e016159'
+        self._volume_id = 'da5c806a-1130-48d3-824d-64f67918dbcc'
         self._context = context.RequestContext(self._user_id, self._project_id)
 
         self._setup_stubs()

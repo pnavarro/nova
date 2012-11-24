@@ -39,6 +39,9 @@ hyper_volumeops_opts = [
     cfg.IntOpt('hyperv_wait_between_attach_retry',
         default=5,
         help='The seconds to wait between an volume attachment attempt'),
+    cfg.BoolOpt('force_volumeutils_v1',
+        default=False,
+        help='Force volumeutils v1'),
     ]
 
 CONF = config.CONF
@@ -66,10 +69,20 @@ class VolumeOps(baseops.BaseOps):
         self._volutils = self._get_volume_utils()
 
     def _get_volume_utils(self):
-        if(CONF.hyperv_os_version < 2012):
-            return volumeutils.VolumeUtils(self._conn_wmi)
-        else:
+        if(not CONF.force_volumeutils_v1) and \
+        (self._get_hypervisor_version() >= 6.2):
             return volumeutilsV2.VolumeUtilsV2(self._conn_storage)
+        else:
+            return volumeutils.VolumeUtils(self._conn_wmi)
+
+    def _get_hypervisor_version(self):
+        """Get hypervisor version.
+        :returns: hypervisor version (ex. 12003)
+        """
+        version = self._conn_cimv2.Win32_OperatingSystem()[0]\
+            .Version
+        LOG.info(_('Windows version: %s ') % version)
+        return version
 
     def attach_boot_volume(self, block_device_info, vm_name):
         """Attach the boot volume to the IDE controller"""
