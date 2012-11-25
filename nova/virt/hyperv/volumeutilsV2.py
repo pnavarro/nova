@@ -31,8 +31,9 @@ CONF = cfg.CONF
 
 class VolumeUtilsV2(basevolumeutils.BaseVolumeUtils):
 
-        def __init__(self, conn_storage):
+        def __init__(self, conn_storage, conn_wmi):
             self._conn_storage = conn_storage
+            self._conn_wmi = conn_wmi
 
         def login_storage_target(self, target_lun, target_iqn,
             target_portal):
