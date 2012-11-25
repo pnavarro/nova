@@ -17,7 +17,6 @@
 
 from nova.compute import api as compute_api
 from nova.compute import manager as compute_manager
-from nova import config
 import nova.context
 from nova import db
 from nova import exception
@@ -25,12 +24,14 @@ from nova.network import api as network_api
 from nova.network import manager as network_manager
 from nova.network import model as network_model
 from nova.network import nova_ipam_lib
+from nova.openstack.common import cfg
 from nova import utils
 from nova.virt.libvirt import config as libvirt_config
 
 
 HOST = "testhost"
-CONF = config.CONF
+CONF = cfg.CONF
+CONF.import_opt('use_ipv6', 'nova.config')
 
 
 class FakeIptablesFirewallDriver(object):

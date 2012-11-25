@@ -23,7 +23,6 @@ from nova.compute import claims
 from nova.compute import instance_types
 from nova.compute import task_states
 from nova.compute import vm_states
-from nova import config
 from nova import context
 from nova import db
 from nova import exception
@@ -44,7 +43,7 @@ resource_tracker_opts = [
                help='Class that will manage stats for the local compute host')
 ]
 
-CONF = config.CONF
+CONF = cfg.CONF
 CONF.register_opts(resource_tracker_opts)
 
 LOG = logging.getLogger(__name__)
@@ -84,22 +83,20 @@ class ResourceTracker(object):
         if self.disabled:
             # compute_driver doesn't support resource tracking, just
             # set the 'host' field and continue the build:
-            instance_ref = self._set_instance_host(context,
-                    instance_ref['uuid'])
+            self._set_instance_host(context, instance_ref)
             return claims.NopClaim()
 
         # sanity check:
         if instance_ref['host']:
-            LOG.warning(_("Host field should be not be set on the instance "
-                          "until resources have been claimed."),
+            LOG.warning(_("Host field should not be set on the instance until "
+                          "resources have been claimed."),
                           instance=instance_ref)
 
         claim = claims.Claim(instance_ref, self)
 
         if claim.test(self.compute_node, limits):
 
-            instance_ref = self._set_instance_host(context,
-                    instance_ref['uuid'])
+            self._set_instance_host(context, instance_ref)
 
             # Mark resources in-use and update stats
             self._update_usage_from_instance(self.compute_node, instance_ref)
@@ -171,16 +168,17 @@ class ResourceTracker(object):
                  'new_instance_type_id': instance_type['id'],
                  'status': 'pre-migrating'})
 
-    def _set_instance_host(self, context, instance_uuid):
+    def _set_instance_host(self, context, instance_ref):
         """Tag the instance as belonging to this host.  This should be done
         while the COMPUTE_RESOURCES_SEMPAHORE is held so the resource claim
         will not be lost if the audit process starts.
         """
         values = {'host': self.host, 'launched_on': self.host}
-        (old_ref, instance_ref) = db.instance_update_and_get_original(context,
-                instance_uuid, values)
-        notifications.send_update(context, old_ref, instance_ref)
-        return instance_ref
+        (old_ref, new_ref) = db.instance_update_and_get_original(context,
+                instance_ref['uuid'], values)
+        notifications.send_update(context, old_ref, new_ref)
+        instance_ref['host'] = self.host
+        instance_ref['launched_on'] = self.host
 
     def abort_instance_claim(self, instance):
         """Remove usage from the given instance"""
@@ -371,7 +369,7 @@ class ResourceTracker(object):
         represent an incoming or outbound migration.
         """
         uuid = migration['instance_uuid']
-        LOG.audit("Updating from migration %s" % uuid)
+        LOG.audit(_("Updating from migration %s") % uuid)
 
         incoming = (migration['dest_compute'] == self.host)
         outbound = (migration['source_compute'] == self.host)

@@ -18,10 +18,11 @@
 Client side of the cert manager RPC API.
 """
 
-from nova import config
+from nova.openstack.common import cfg
 import nova.openstack.common.rpc.proxy
 
-CONF = config.CONF
+CONF = cfg.CONF
+CONF.import_opt('cert_topic', 'nova.config')
 
 
 class CertAPI(nova.openstack.common.rpc.proxy.RpcProxy):

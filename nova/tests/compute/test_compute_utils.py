@@ -21,11 +21,11 @@ import string
 
 from nova.compute import instance_types
 from nova.compute import utils as compute_utils
-from nova import config
 from nova import context
 from nova import db
 from nova import exception
 from nova.network import api as network_api
+from nova.openstack.common import cfg
 from nova.openstack.common import importutils
 from nova.openstack.common import log as logging
 from nova.openstack.common.notifier import api as notifier_api
@@ -36,7 +36,9 @@ import nova.tests.image.fake
 from nova import utils
 
 LOG = logging.getLogger(__name__)
-CONF = config.CONF
+CONF = cfg.CONF
+CONF.import_opt('compute_manager', 'nova.config')
+CONF.import_opt('compute_driver', 'nova.virt.driver')
 
 
 class ComputeValidateDeviceTestCase(test.TestCase):

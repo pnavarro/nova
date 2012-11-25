@@ -19,6 +19,7 @@
 import contextlib
 import cStringIO
 import hashlib
+import json
 import logging
 import os
 import time
@@ -27,15 +28,17 @@ from nova import test
 
 from nova.compute import manager as compute_manager
 from nova.compute import vm_states
-from nova import config
 from nova import db
+from nova.openstack.common import cfg
 from nova.openstack.common import importutils
 from nova.openstack.common import log
 from nova import utils
 from nova.virt.libvirt import imagecache
 from nova.virt.libvirt import utils as virtutils
 
-CONF = config.CONF
+CONF = cfg.CONF
+CONF.import_opt('compute_manager', 'nova.config')
+CONF.import_opt('host', 'nova.config')
 
 LOG = log.getLogger(__name__)
 
@@ -51,7 +54,7 @@ class ImageCacheManagerTestCase(test.TestCase):
 
     def test_read_stored_checksum_missing(self):
         self.stubs.Set(os.path, 'exists', lambda x: False)
-        csum = imagecache.read_stored_checksum('/tmp/foo')
+        csum = imagecache.read_stored_checksum('/tmp/foo', timestamped=False)
         self.assertEquals(csum, None)
 
     def test_read_stored_checksum(self):
@@ -67,7 +70,8 @@ class ImageCacheManagerTestCase(test.TestCase):
             f.write(csum_input)
             f.close()
 
-            csum_output = imagecache.read_stored_checksum(fname)
+            csum_output = imagecache.read_stored_checksum(fname,
+                                                          timestamped=False)
             self.assertEquals(csum_input.rstrip(),
                               '{"sha1": "%s"}' % csum_output)
 
@@ -83,7 +87,8 @@ class ImageCacheManagerTestCase(test.TestCase):
             f.write('fdghkfhkgjjksfdgjksjkghsdf')
             f.close()
 
-            csum_output = imagecache.read_stored_checksum(fname)
+            csum_output = imagecache.read_stored_checksum(fname,
+                                                          timestamped=False)
             self.assertEquals(csum_output, 'fdghkfhkgjjksfdgjksjkghsdf')
             self.assertFalse(os.path.exists(old_fname))
             self.assertTrue(os.path.exists(virtutils.get_info_filename(fname)))
@@ -349,9 +354,8 @@ class ImageCacheManagerTestCase(test.TestCase):
         fname = os.path.join(tmpdir, 'aaa')
         info_fname = virtutils.get_info_filename(fname)
 
-        f = open(fname, 'w')
-        f.write(testdata)
-        f.close()
+        with open(fname, 'w') as f:
+            f.write(testdata)
 
         return fname, info_fname, testdata
 
@@ -478,26 +482,23 @@ class ImageCacheManagerTestCase(test.TestCase):
                 self.assertNotEqual(log.find('image verification failed'), -1)
 
     def test_verify_checksum_file_missing(self):
-        img = {'container_format': 'ami', 'id': '42'}
-
         self.flags(checksum_base_images=True)
 
-        with self._intercept_log_messages() as stream:
-            with utils.tempdir() as tmpdir:
-                self.flags(instances_path=tmpdir)
-                self.flags(image_info_filename_pattern=('$instances_path/'
-                                                        '%(image)s.info'))
+        with utils.tempdir() as tmpdir:
+            self.flags(instances_path=tmpdir)
+            self.flags(image_info_filename_pattern=('$instances_path/'
+                                                    '%(image)s.info'))
 
-                fname, info_fname, testdata = self._make_checksum(tmpdir)
+            fname, info_fname, testdata = self._make_checksum(tmpdir)
 
-                # Checksum file missing
-                image_cache_manager = imagecache.ImageCacheManager()
-                res = image_cache_manager._verify_checksum(img, fname)
-                self.assertEquals(res, None)
+            # Checksum file missing
+            image_cache_manager = imagecache.ImageCacheManager()
+            res = image_cache_manager._verify_checksum('aaa', fname)
+            self.assertEquals(res, None)
 
-                # Checksum requests for a file with no checksum now have the
-                # side effect of creating the checksum
-                self.assertTrue(os.path.exists(info_fname))
+            # Checksum requests for a file with no checksum now have the
+            # side effect of creating the checksum
+            self.assertTrue(os.path.exists(info_fname))
 
     @contextlib.contextmanager
     def _make_base_file(self, checksum=True):
@@ -626,22 +627,22 @@ class ImageCacheManagerTestCase(test.TestCase):
             self.assertEquals(image_cache_manager.corrupt_base_files, [])
 
     def test_handle_base_image_used_remotely(self):
+        self.stubs.Set(virtutils, 'chown', lambda x, y: None)
         img = '123'
 
         with self._make_base_file() as fname:
             os.utime(fname, (-1, time.time() - 3601))
 
             image_cache_manager = imagecache.ImageCacheManager()
+            image_cache_manager.unexplained_images = [fname]
             image_cache_manager.used_images = {'123': (0, 1, ['banana-42'])}
-            image_cache_manager._handle_base_image(img, None)
+            image_cache_manager._handle_base_image(img, fname)
 
             self.assertEquals(image_cache_manager.unexplained_images, [])
             self.assertEquals(image_cache_manager.removable_base_files, [])
             self.assertEquals(image_cache_manager.corrupt_base_files, [])
 
     def test_handle_base_image_absent(self):
-        """Ensure we warn for use of a missing base image."""
-
         img = '123'
 
         with self._intercept_log_messages() as stream:
@@ -681,9 +682,12 @@ class ImageCacheManagerTestCase(test.TestCase):
         img = '123'
 
         with self._make_base_file() as fname:
-            f = open(fname, 'w')
-            f.write('banana')
-            f.close()
+            with open(fname, 'w') as f:
+                f.write('banana')
+
+            d = {'sha1': '21323454'}
+            with open('%s.info' % fname, 'w') as f:
+                f.write(json.dumps(d))
 
             image_cache_manager = imagecache.ImageCacheManager()
             image_cache_manager.unexplained_images = [fname]
@@ -938,7 +942,10 @@ class ImageCacheManagerTestCase(test.TestCase):
                      'vm_state': '',
                      'task_state': ''}]
 
-        self.stubs.Set(db, 'instance_get_all', fake_get_all)
-        compute = importutils.import_object(CONF.compute_manager)
-        compute._run_image_cache_manager_pass(None)
-        self.assertTrue(was['called'])
+        with utils.tempdir() as tmpdir:
+            self.flags(instances_path=tmpdir)
+
+            self.stubs.Set(db, 'instance_get_all', fake_get_all)
+            compute = importutils.import_object(CONF.compute_manager)
+            compute._run_image_cache_manager_pass(None)
+            self.assertTrue(was['called'])

@@ -18,13 +18,14 @@
 Unit Tests for nova.network.rpcapi
 """
 
-from nova import config
 from nova import context
 from nova.network import rpcapi as network_rpcapi
+from nova.openstack.common import cfg
 from nova.openstack.common import rpc
 from nova import test
 
-CONF = config.CONF
+CONF = cfg.CONF
+CONF.import_opt('network_topic', 'nova.config')
 
 
 class NetworkRpcAPITestCase(test.TestCase):

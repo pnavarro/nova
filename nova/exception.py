@@ -732,7 +732,7 @@ class ConsoleNotFoundInPoolForInstance(ConsoleNotFound):
 
 
 class ConsoleTypeInvalid(Invalid):
-    message = _("Invalid console type %(console_type)s ")
+    message = _("Invalid console type %(console_type)s")
 
 
 class InstanceTypeNotFound(NotFound):
@@ -863,6 +863,10 @@ class PasteAppNotFound(NovaException):
 
 class CannotResizeToSameFlavor(NovaException):
     message = _("When resizing, instances must change flavor!")
+
+
+class ResizeError(NovaException):
+    message = _("Resize error: %(reason)s")
 
 
 class ImageTooLarge(NovaException):

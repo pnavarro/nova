@@ -30,8 +30,8 @@ from nova.api.openstack import wsgi
 from nova.api.openstack import xmlutil
 from nova import compute
 from nova.compute import instance_types
-from nova import config
 from nova import exception
+from nova.openstack.common import cfg
 from nova.openstack.common import importutils
 from nova.openstack.common import log as logging
 from nova.openstack.common.rpc import common as rpc_common
@@ -41,7 +41,11 @@ from nova import utils
 
 
 LOG = logging.getLogger(__name__)
-CONF = config.CONF
+CONF = cfg.CONF
+CONF.import_opt('enable_instance_password', 'nova.config')
+CONF.import_opt('network_api_class', 'nova.config')
+CONF.import_opt('password_length', 'nova.config')
+CONF.import_opt('reclaim_instance_interval', 'nova.compute.manager')
 
 
 def make_fault(elem):
@@ -536,6 +540,9 @@ class Controller(wsgi.Controller):
         except exception.MarkerNotFound as e:
             msg = _('marker [%s] not found') % marker
             raise webob.exc.HTTPBadRequest(explanation=msg)
+        except exception.FlavorNotFound as e:
+            msg = _("Flavor could not be found")
+            raise webob.exc.HTTPUnprocessableEntity(explanation=msg)
 
         if is_detail:
             self._add_instance_faults(context, instance_list)

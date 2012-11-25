@@ -24,10 +24,10 @@ from lxml import etree
 
 from nova.cloudpipe.pipelib import CloudPipe
 from nova.compute import api
-from nova import config
 from nova import context
 from nova import db
 from nova.network.manager import NetworkManager
+from nova.openstack.common import cfg
 from nova.openstack.common import importutils
 from nova.openstack.common import jsonutils
 from nova.openstack.common.log import logging
@@ -38,7 +38,10 @@ from nova.tests import fake_network
 from nova.tests.image import fake
 from nova.tests.integrated import integrated_helpers
 
-CONF = config.CONF
+CONF = cfg.CONF
+CONF.import_opt('allow_resize_to_same_host', 'nova.compute.api')
+CONF.import_opt('osapi_compute_extension', 'nova.config')
+CONF.import_opt('vpn_image_id', 'nova.config')
 LOG = logging.getLogger(__name__)
 
 
@@ -243,6 +246,7 @@ class ApiSampleTestBase(integrated_helpers._IntegratedTestBase):
 #                           '[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}:'
 #                           '[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}',
             'host': self._get_host(),
+            'host_name': '[0-9a-z]{32}',
             'glance_host': self._get_glance_host(),
             'compute_host': self.compute.host,
             'text': text,
@@ -452,6 +456,24 @@ class FlavorsSampleJsonTest(ApiSampleTestBase):
 
 
 class FlavorsSampleXmlTest(FlavorsSampleJsonTest):
+    ctype = 'xml'
+
+
+class HostsSampleJsonTest(ApiSampleTestBase):
+    extension_name = "nova.api.openstack.compute.contrib.hosts.Hosts"
+
+    def test_host_get(self):
+        response = self._do_get('os-hosts/%s' % self.compute.host)
+        subs = self._get_regexes()
+        return self._verify_response('host-get-resp', subs, response)
+
+    def test_hosts_list(self):
+        response = self._do_get('os-hosts')
+        subs = self._get_regexes()
+        return self._verify_response('hosts-list-resp', subs, response)
+
+
+class HostsSampleXmlTest(HostsSampleJsonTest):
     ctype = 'xml'
 
 

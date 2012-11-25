@@ -35,7 +35,6 @@ from nova.api.openstack import wsgi as os_wsgi
 from nova.compute import api as compute_api
 from nova.compute import instance_types
 from nova.compute import vm_states
-import nova.config
 from nova import context
 from nova.db.sqlalchemy import models
 from nova import exception as exc
@@ -474,7 +473,7 @@ def stub_instance(id, user_id=None, project_id=None, host=None,
         "vcpus": 0,
         "root_gb": 0,
         "ephemeral_gb": 0,
-        "hostname": "",
+        "hostname": display_name or server_name,
         "host": host,
         "instance_type_id": 1,
         "instance_type": dict(inst_type),

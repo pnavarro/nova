@@ -33,10 +33,10 @@ from nova.compute import instance_types
 from nova.compute import power_state
 from nova.compute import vm_mode
 from nova.compute import vm_states
-from nova import config
 from nova import context
 from nova import db
 from nova import exception
+from nova.openstack.common import cfg
 from nova.openstack.common import fileutils
 from nova.openstack.common import importutils
 from nova.openstack.common import jsonutils
@@ -69,7 +69,10 @@ except ImportError:
 libvirt_driver.libvirt = libvirt
 
 
-CONF = config.CONF
+CONF = cfg.CONF
+CONF.import_opt('compute_manager', 'nova.config')
+CONF.import_opt('host', 'nova.config')
+CONF.import_opt('my_ip', 'nova.config')
 LOG = logging.getLogger(__name__)
 
 _fake_network_info = fake_network.fake_get_instance_nw_info
@@ -564,22 +567,22 @@ class LibvirtConnTestCase(test.TestCase):
         self.stubs.Set(libvirt_driver.disk, 'extend', fake_extend)
 
         nova.tests.image.fake.stub_out_image_service(self.stubs)
+        self.test_instance = {
+                'memory_kb': '1024000',
+                'basepath': '/some/path',
+                'bridge_name': 'br100',
+                'vcpus': 2,
+                'project_id': 'fake',
+                'bridge': 'br101',
+                'image_ref': '155d900f-4e14-4e4c-a73d-069cbf4541e6',
+                'root_gb': 10,
+                'ephemeral_gb': 20,
+                'instance_type_id': '5'}  # m1.small
 
     def tearDown(self):
         libvirt_driver.libvirt_utils = libvirt_utils
         nova.tests.image.fake.FakeImageService_reset()
         super(LibvirtConnTestCase, self).tearDown()
-
-    test_instance = {'memory_kb': '1024000',
-                     'basepath': '/some/path',
-                     'bridge_name': 'br100',
-                     'vcpus': 2,
-                     'project_id': 'fake',
-                     'bridge': 'br101',
-                     'image_ref': '155d900f-4e14-4e4c-a73d-069cbf4541e6',
-                     'root_gb': 10,
-                     'ephemeral_gb': 20,
-                     'instance_type_id': '5'}  # m1.small
 
     def create_fake_libvirt_mock(self, **kwargs):
         """Defining mocks for LibvirtDriver(libvirt is not used)."""
@@ -2161,7 +2164,7 @@ class LibvirtConnTestCase(test.TestCase):
             imagebackend.Image.cache(context=mox.IgnoreArg(),
                                      fetch_func=mox.IgnoreArg(),
                                      filename='otherdisk',
-                                     image_id=123456,
+                                     image_id=self.test_instance['image_ref'],
                                      project_id='fake',
                                      size=10737418240L,
                                      user_id=None).AndReturn(None)
@@ -2301,6 +2304,7 @@ class LibvirtConnTestCase(test.TestCase):
                                        CONF.base_dir_name))
 
     def test_get_console_output_file(self):
+        fake_libvirt_utils.files['console.log'] = '01234567890'
 
         with utils.tempdir() as tmpdir:
             self.flags(instances_path=tmpdir)
@@ -2310,11 +2314,7 @@ class LibvirtConnTestCase(test.TestCase):
             instance = db.instance_create(self.context, instance_ref)
 
             console_dir = (os.path.join(tmpdir, instance['name']))
-            os.mkdir(console_dir)
             console_log = '%s/console.log' % (console_dir)
-            f = open(console_log, "w")
-            f.write("foo")
-            f.close()
             fake_dom_xml = """
                 <domain type='kvm'>
                     <devices>
@@ -2337,10 +2337,18 @@ class LibvirtConnTestCase(test.TestCase):
             libvirt_driver.libvirt_utils = fake_libvirt_utils
 
             conn = libvirt_driver.LibvirtDriver(fake.FakeVirtAPI(), False)
-            output = conn.get_console_output(instance)
-            self.assertEquals("foo", output)
+
+            try:
+                prev_max = libvirt_driver.MAX_CONSOLE_BYTES
+                libvirt_driver.MAX_CONSOLE_BYTES = 5
+                output = conn.get_console_output(instance)
+            finally:
+                libvirt_driver.MAX_CONSOLE_BYTES = prev_max
+
+            self.assertEquals('67890', output)
 
     def test_get_console_output_pty(self):
+        fake_libvirt_utils.files['pty'] = '01234567890'
 
         with utils.tempdir() as tmpdir:
             self.flags(instances_path=tmpdir)
@@ -2350,11 +2358,7 @@ class LibvirtConnTestCase(test.TestCase):
             instance = db.instance_create(self.context, instance_ref)
 
             console_dir = (os.path.join(tmpdir, instance['name']))
-            os.mkdir(console_dir)
             pty_file = '%s/fake_pty' % (console_dir)
-            f = open(pty_file, "w")
-            f.write("foo")
-            f.close()
             fake_dom_xml = """
                 <domain type='kvm'>
                     <devices>
@@ -2373,17 +2377,27 @@ class LibvirtConnTestCase(test.TestCase):
                 return FakeVirtDomain(fake_dom_xml)
 
             def _fake_flush(self, fake_pty):
-                with open(fake_pty, 'r') as fp:
-                    return fp.read()
+                return 'foo'
+
+            def _fake_append_to_file(self, data, fpath):
+                return 'pty'
 
             self.create_fake_libvirt_mock()
             libvirt_driver.LibvirtDriver._conn.lookupByName = fake_lookup
             libvirt_driver.LibvirtDriver._flush_libvirt_console = _fake_flush
+            libvirt_driver.LibvirtDriver._append_to_file = _fake_append_to_file
             libvirt_driver.libvirt_utils = fake_libvirt_utils
 
             conn = libvirt_driver.LibvirtDriver(fake.FakeVirtAPI(), False)
-            output = conn.get_console_output(instance)
-            self.assertEquals("foo", output)
+
+            try:
+                prev_max = libvirt_driver.MAX_CONSOLE_BYTES
+                libvirt_driver.MAX_CONSOLE_BYTES = 5
+                output = conn.get_console_output(instance)
+            finally:
+                libvirt_driver.MAX_CONSOLE_BYTES = prev_max
+
+            self.assertEquals('67890', output)
 
     def test_get_host_ip_addr(self):
         conn = libvirt_driver.LibvirtDriver(fake.FakeVirtAPI(), False)

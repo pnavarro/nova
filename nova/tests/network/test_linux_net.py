@@ -19,17 +19,18 @@ import os
 
 import mox
 
-from nova import config
 from nova import context
 from nova import db
 from nova.network import linux_net
+from nova.openstack.common import cfg
 from nova.openstack.common import fileutils
 from nova.openstack.common import importutils
 from nova.openstack.common import log as logging
 from nova import test
 from nova import utils
 
-CONF = config.CONF
+CONF = cfg.CONF
+CONF.import_opt('network_driver', 'nova.config')
 LOG = logging.getLogger(__name__)
 
 HOST = "testhost"

@@ -22,7 +22,6 @@ import os
 import uuid
 
 from nova.api.metadata import base as instance_metadata
-from nova import config
 from nova import exception
 from nova.openstack.common import cfg
 from nova.openstack.common import lockutils
@@ -57,8 +56,9 @@ hyperv_opts = [
                     'instead of a disk drive')
     ]
 
-CONF = config.CONF
+CONF = cfg.CONF
 CONF.register_opts(hyperv_opts)
+CONF.import_opt('use_cow_images', 'nova.config')
 
 
 class VMOps(baseops.BaseOps):
@@ -102,12 +102,12 @@ class VMOps(baseops.BaseOps):
         info = summary_info[0]
 
         LOG.debug(_("hyperv vm state: %s"), info.EnabledState)
-        state = str(constants.HYPERV_POWER_STATE[info.EnabledState])
+        state = constants.HYPERV_POWER_STATE[info.EnabledState]
         memusage = str(info.MemoryUsage)
         numprocs = str(info.NumberOfProcessors)
         uptime = str(info.UpTime)
 
-        LOG.debug(_("Got Info for vm %(instance_name)s: state=%(state)s,"
+        LOG.debug(_("Got Info for vm %(instance_name)s: state=%(state)d,"
                 " mem=%(memusage)s, num_cpu=%(numprocs)s,"
                 " uptime=%(uptime)s"), locals())
 

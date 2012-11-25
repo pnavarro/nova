@@ -33,11 +33,11 @@ from nova import compute
 from nova.compute import api as compute_api
 from nova.compute import instance_types
 from nova.compute import vm_states
-from nova import config
 from nova import db
 from nova import exception
 from nova.image import s3
 from nova import network
+from nova.openstack.common import cfg
 from nova.openstack.common import log as logging
 from nova.openstack.common import timeutils
 from nova import quota
@@ -45,7 +45,14 @@ from nova import utils
 from nova import volume
 
 
-CONF = config.CONF
+CONF = cfg.CONF
+CONF.import_opt('ec2_host', 'nova.config')
+CONF.import_opt('ec2_path', 'nova.config')
+CONF.import_opt('ec2_port', 'nova.config')
+CONF.import_opt('ec2_scheme', 'nova.config')
+CONF.import_opt('region_list', 'nova.config')
+CONF.import_opt('vpn_image_id', 'nova.config')
+CONF.import_opt('vpn_key_suffix', 'nova.config')
 
 LOG = logging.getLogger(__name__)
 

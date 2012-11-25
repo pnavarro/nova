@@ -23,10 +23,10 @@ from nova.api.openstack.compute import servers
 from nova.compute import api as compute_api
 from nova.compute import task_states
 from nova.compute import vm_states
-from nova import config
 from nova import db
 from nova import exception
 from nova.image import glance
+from nova.openstack.common import cfg
 from nova.openstack.common import importutils
 from nova import test
 from nova.tests.api.openstack import fakes
@@ -34,7 +34,8 @@ from nova.tests.image import fake
 from nova.tests import matchers
 
 
-CONF = config.CONF
+CONF = cfg.CONF
+CONF.import_opt('password_length', 'nova.config')
 FAKE_UUID = fakes.FAKE_UUID
 INSTANCE_IDS = {FAKE_UUID: 1}
 

@@ -28,14 +28,16 @@ from nova.api.openstack import xmlutil
 from nova.compute import task_states
 from nova.compute import utils as compute_utils
 from nova.compute import vm_states
-from nova import config
 from nova import exception
+from nova.openstack.common import cfg
 from nova.openstack.common import log as logging
 from nova import quota
 
 
 LOG = logging.getLogger(__name__)
-CONF = config.CONF
+CONF = cfg.CONF
+CONF.import_opt('osapi_compute_link_prefix', 'nova.config')
+CONF.import_opt('osapi_max_limit', 'nova.config')
 QUOTAS = quota.QUOTAS
 
 

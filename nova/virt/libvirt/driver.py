@@ -59,7 +59,6 @@ from nova.api.metadata import base as instance_metadata
 from nova import block_device
 from nova.compute import power_state
 from nova.compute import vm_mode
-from nova import config
 from nova import context as nova_context
 from nova import exception
 from nova.image import glance
@@ -183,14 +182,20 @@ libvirt_opts = [
                     'before uploading them to image service'),
     ]
 
-CONF = config.CONF
+CONF = cfg.CONF
 CONF.register_opts(libvirt_opts)
+CONF.import_opt('default_ephemeral_format', 'nova.config')
+CONF.import_opt('host', 'nova.config')
+CONF.import_opt('my_ip', 'nova.config')
+CONF.import_opt('use_cow_images', 'nova.config')
 CONF.import_opt('live_migration_retry_count', 'nova.compute.manager')
 CONF.import_opt('vncserver_proxyclient_address', 'nova.vnc')
 
 DEFAULT_FIREWALL_DRIVER = "%s.%s" % (
     libvirt_firewall.__name__,
     libvirt_firewall.IptablesFirewallDriver.__name__)
+
+MAX_CONSOLE_BYTES = 102400
 
 
 def patch_tpool_proxy():
@@ -1142,7 +1147,14 @@ class LibvirtDriver(driver.ComputeDriver):
                 if not path:
                     continue
                 libvirt_utils.chown(path, os.getuid())
-                return libvirt_utils.load_file(path)
+
+                with libvirt_utils.file_open(path, 'rb') as fp:
+                    log_data, remaining = utils.last_bytes(fp,
+                                                           MAX_CONSOLE_BYTES)
+                    if remaining > 0:
+                        LOG.info(_('Truncated console log returned, %d bytes '
+                                   'ignored'), remaining, instance=instance)
+                    return log_data
 
         # Try 'pty' types
         if console_types.get('pty'):
@@ -1163,7 +1175,12 @@ class LibvirtDriver(driver.ComputeDriver):
         console_log = self._get_console_log_path(instance['name'])
         fpath = self._append_to_file(data, console_log)
 
-        return libvirt_utils.load_file(fpath)
+        with libvirt_utils.file_open(fpath, 'rb') as fp:
+            log_data, remaining = utils.last_bytes(fp, MAX_CONSOLE_BYTES)
+            if remaining > 0:
+                LOG.info(_('Truncated console log returned, %d bytes ignored'),
+                         remaining, instance=instance)
+            return log_data
 
     @staticmethod
     def get_host_ip_addr():
@@ -2385,7 +2402,7 @@ class LibvirtDriver(driver.ComputeDriver):
             raise exception.InvalidCPUInfo(reason=m % locals())
 
     def _create_shared_storage_test_file(self):
-        """Makes tmpfile under CONF.instance_path."""
+        """Makes tmpfile under CONF.instances_path."""
         dirpath = CONF.instances_path
         fd, tmp_file = tempfile.mkstemp(dir=dirpath)
         LOG.debug(_("Creating tmpfile %s to notify to other "

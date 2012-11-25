@@ -21,7 +21,6 @@ Management class for Storage-related functions (attach, detach, etc).
 import time
 
 from nova import block_device
-from nova import config
 from nova.openstack.common import cfg
 from nova.openstack.common import log as logging
 from nova.virt import driver
@@ -44,8 +43,9 @@ hyper_volumeops_opts = [
         help='Force volumeutils v1'),
     ]
 
-CONF = config.CONF
+CONF = cfg.CONF
 CONF.register_opts(hyper_volumeops_opts)
+CONF.import_opt('my_ip', 'nova.config')
 
 
 class VolumeOps(baseops.BaseOps):

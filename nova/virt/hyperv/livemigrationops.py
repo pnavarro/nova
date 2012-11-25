@@ -21,8 +21,8 @@ Management class for live migration VM operations.
 import os
 import sys
 
-from nova import config
 from nova import exception
+from nova.openstack.common import cfg
 from nova.openstack.common import excutils
 from nova.openstack.common import log as logging
 from nova.virt.hyperv import baseops
@@ -34,7 +34,8 @@ if sys.platform == 'win32':
     import wmi
 
 LOG = logging.getLogger(__name__)
-CONF = config.CONF
+CONF = cfg.CONF
+CONF.import_opt('use_cow_images', 'nova.config')
 
 
 class LiveMigrationOps(baseops.BaseOps):

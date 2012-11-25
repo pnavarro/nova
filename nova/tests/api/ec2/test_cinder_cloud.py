@@ -24,10 +24,10 @@ from nova.api.ec2 import cloud
 from nova.api.ec2 import ec2utils
 from nova.compute import api as compute_api
 from nova.compute import utils as compute_utils
-from nova import config
 from nova import context
 from nova import db
 from nova import exception
+from nova.openstack.common import cfg
 from nova.openstack.common import log as logging
 from nova.openstack.common import rpc
 from nova import test
@@ -36,7 +36,10 @@ from nova.tests.image import fake
 from nova.tests import matchers
 from nova import volume
 
-CONF = config.CONF
+CONF = cfg.CONF
+CONF.import_opt('compute_driver', 'nova.virt.driver')
+CONF.import_opt('default_instance_type', 'nova.config')
+CONF.import_opt('use_ipv6', 'nova.config')
 LOG = logging.getLogger(__name__)
 
 

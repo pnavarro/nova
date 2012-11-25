@@ -19,7 +19,6 @@
 
 """Session Handling for SQLAlchemy backend."""
 
-from nova import config
 from nova.db.sqlalchemy import session as nova_session
 from nova.openstack.common import cfg
 
@@ -30,8 +29,10 @@ opts = [
                     'bare-metal database'),
     ]
 
-CONF = config.CONF
+CONF = cfg.CONF
 CONF.register_opts(opts)
+CONF.import_opt('sqlite_db', 'nova.db.sqlalchemy.session')
+CONF.import_opt('state_path', 'nova.config')
 
 _ENGINE = None
 _MAKER = None

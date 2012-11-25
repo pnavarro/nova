@@ -21,9 +21,9 @@ import webob
 from nova.api.openstack.compute.contrib import volumes
 from nova.compute import api as compute_api
 from nova.compute import instance_types
-from nova import config
 from nova import context
 from nova import db
+from nova.openstack.common import cfg
 from nova.openstack.common import jsonutils
 from nova.openstack.common import timeutils
 from nova import test
@@ -31,7 +31,8 @@ from nova.tests.api.openstack import fakes
 from nova.volume import cinder
 from webob import exc
 
-CONF = config.CONF
+CONF = cfg.CONF
+CONF.import_opt('password_length', 'nova.config')
 
 FAKE_UUID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
 FAKE_UUID_A = '00000000-aaaa-aaaa-aaaa-000000000000'

@@ -23,9 +23,10 @@
 
 import netaddr
 
-from nova import config
+from nova.openstack.common import cfg
 
-CONF = config.CONF
+CONF = cfg.CONF
+CONF.import_opt('use_ipv6', 'nova.config')
 CONF.import_opt('injected_network_template', 'nova.virt.disk.api')
 
 Template = None

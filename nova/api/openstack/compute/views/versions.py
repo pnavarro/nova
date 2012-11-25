@@ -19,10 +19,11 @@ import copy
 import os
 
 from nova.api.openstack import common
-from nova import config
+from nova.openstack.common import cfg
 
 
-CONF = config.CONF
+CONF = cfg.CONF
+CONF.import_opt('osapi_compute_link_prefix', 'nova.config')
 
 
 def get_view_builder(req):

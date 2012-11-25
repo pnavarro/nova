@@ -36,7 +36,6 @@ from nova.compute import rpcapi as compute_rpcapi
 from nova.compute import task_states
 from nova.compute import utils as compute_utils
 from nova.compute import vm_states
-from nova import config
 from nova.consoleauth import rpcapi as consoleauth_rpcapi
 from nova import crypto
 from nova.db import base
@@ -44,6 +43,7 @@ from nova import exception
 from nova.image import glance
 from nova import network
 from nova import notifications
+from nova.openstack.common import cfg
 from nova.openstack.common import excutils
 from nova.openstack.common import importutils
 from nova.openstack.common import jsonutils
@@ -59,7 +59,32 @@ from nova import volume
 
 LOG = logging.getLogger(__name__)
 
-CONF = config.CONF
+compute_opts = [
+    cfg.BoolOpt('allow_resize_to_same_host',
+                default=False,
+                help='Allow destination machine to match source for resize. '
+                     'Useful when testing in single-host environments.'),
+    cfg.StrOpt('default_schedule_zone',
+               default=None,
+               help='availability zone to use when user doesn\'t specify one'),
+    cfg.ListOpt('non_inheritable_image_properties',
+                default=['cache_in_nova',
+                         'bittorrent'],
+                help='These are image properties which a snapshot should not'
+                     ' inherit from an instance'),
+    cfg.StrOpt('null_kernel',
+               default='nokernel',
+               help='kernel image that indicates not to use a kernel, but to '
+                    'use a raw disk image instead'),
+    cfg.StrOpt('security_group_handler',
+               default='nova.network.sg.NullSecurityGroupHandler',
+               help='The full class name of the security group handler class'),
+]
+
+
+CONF = cfg.CONF
+CONF.register_opts(compute_opts)
+CONF.import_opt('compute_topic', 'nova.config')
 CONF.import_opt('consoleauth_topic', 'nova.consoleauth')
 
 MAX_USERDATA_SIZE = 65535
@@ -683,7 +708,6 @@ class API(base.Base):
         instance['launch_index'] = 0
         instance['vm_state'] = vm_states.BUILDING
         instance['task_state'] = task_states.SCHEDULING
-        instance['architecture'] = image['properties'].get('architecture')
         instance['info_cache'] = {'network_info': '[]'}
 
         # Store image properties so we can use them later
@@ -1122,11 +1146,8 @@ class API(base.Base):
         filters = {}
 
         def _remap_flavor_filter(flavor_id):
-            try:
-                instance_type = instance_types.get_instance_type_by_flavor_id(
-                        flavor_id)
-            except exception.FlavorNotFound:
-                raise ValueError()
+            instance_type = instance_types.get_instance_type_by_flavor_id(
+                    flavor_id)
 
             filters['instance_type_id'] = instance_type['id']
 
@@ -1545,10 +1566,13 @@ class API(base.Base):
         # system metadata... and copy in the properties for the new image.
         orig_sys_metadata = _reset_image_metadata()
 
+        bdms = self.db.block_device_mapping_get_all_by_instance(context,
+                instance['uuid'])
+
         self.compute_rpcapi.rebuild_instance(context, instance=instance,
                 new_pass=admin_password, injected_files=files_to_inject,
                 image_ref=image_href, orig_image_ref=orig_image_ref,
-                orig_sys_metadata=orig_sys_metadata)
+                orig_sys_metadata=orig_sys_metadata, bdms=bdms)
 
     @wrap_check_policy
     @check_instance_lock

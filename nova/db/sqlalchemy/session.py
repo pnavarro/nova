@@ -169,12 +169,51 @@ import sqlalchemy.interfaces
 import sqlalchemy.orm
 from sqlalchemy.pool import NullPool, StaticPool
 
-from nova import config
 import nova.exception
+from nova.openstack.common import cfg
 import nova.openstack.common.log as logging
 
 
-CONF = config.CONF
+sql_opts = [
+    cfg.StrOpt('sql_connection',
+               default='sqlite:///$state_path/$sqlite_db',
+               help='The SQLAlchemy connection string used to connect to the '
+                    'database'),
+    cfg.StrOpt('sqlite_db',
+               default='nova.sqlite',
+               help='the filename to use with sqlite'),
+    cfg.IntOpt('sql_idle_timeout',
+               default=3600,
+               help='timeout before idle sql connections are reaped'),
+    cfg.BoolOpt('sqlite_synchronous',
+                default=True,
+                help='If passed, use synchronous mode for sqlite'),
+    cfg.IntOpt('sql_max_pool_size',
+               default=5,
+               help='Maximum number of SQL connections to keep open in a '
+                     'pool'),
+    cfg.IntOpt('sql_max_retries',
+               default=10,
+               help='maximum db connection retries during startup. '
+                    '(setting -1 implies an infinite retry count)'),
+    cfg.IntOpt('sql_retry_interval',
+               default=10,
+               help='interval between retries of opening a sql connection'),
+    cfg.IntOpt('sql_max_overflow',
+               default=None,
+               help='If set, use this value for max_overflow with sqlalchemy'),
+    cfg.IntOpt('sql_connection_debug',
+               default=0,
+               help='Verbosity of SQL debugging information. 0=None, '
+                    '100=Everything'),
+    cfg.BoolOpt('sql_connection_trace',
+               default=False,
+               help='Add python stack traces to SQL as comment strings'),
+]
+
+CONF = cfg.CONF
+CONF.register_opts(sql_opts)
+CONF.import_opt('state_path', 'nova.config')
 LOG = logging.getLogger(__name__)
 
 _ENGINE = None
@@ -245,7 +284,7 @@ def ping_listener(dbapi_conn, connection_rec, connection_proxy):
         dbapi_conn.cursor().execute('select 1')
     except dbapi_conn.OperationalError, ex:
         if ex.args[0] in (2006, 2013, 2014, 2045, 2055):
-            LOG.warn('Got mysql server has gone away: %s', ex)
+            LOG.warn(_('Got mysql server has gone away: %s'), ex)
             raise DisconnectionError("Database server went away")
         else:
             raise
@@ -272,11 +311,6 @@ def create_engine(sql_connection):
         'convert_unicode': True,
     }
 
-    if CONF.sql_pool_size is not None:
-        engine_args['pool_size'] = CONF.sql_pool_size
-    if CONF.sql_max_overflow is not None:
-        engine_args['max_overflow'] = CONF.sql_max_overflow
-
     # Map our SQL debug level to SQLAlchemy's options
     if CONF.sql_connection_debug >= 100:
         engine_args['echo'] = 'debug'
@@ -289,6 +323,10 @@ def create_engine(sql_connection):
         if CONF.sql_connection == "sqlite://":
             engine_args["poolclass"] = StaticPool
             engine_args["connect_args"] = {'check_same_thread': False}
+    else:
+        engine_args['pool_size'] = CONF.sql_max_pool_size
+        if CONF.sql_max_overflow is not None:
+            engine_args['max_overflow'] = CONF.sql_max_overflow
 
     engine = sqlalchemy.create_engine(sql_connection, **engine_args)
 

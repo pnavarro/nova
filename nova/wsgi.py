@@ -30,7 +30,6 @@ import routes.middleware
 import webob.dec
 import webob.exc
 
-from nova import config
 from nova import exception
 from nova.openstack.common import cfg
 from nova.openstack.common import log as logging
@@ -44,8 +43,9 @@ wsgi_opts = [
                  'into it: client_ip, date_time, request_line, status_code, '
                  'body_length, wall_seconds.')
     ]
-CONF = config.CONF
+CONF = cfg.CONF
 CONF.register_opts(wsgi_opts)
+CONF.import_opt('api_paste_config', 'nova.config')
 
 LOG = logging.getLogger(__name__)
 

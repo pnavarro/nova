@@ -30,7 +30,6 @@ from nova.compute import api as compute
 from nova.compute import power_state
 from nova.compute import vm_mode
 from nova.compute import vm_states
-from nova import config
 from nova import context as nova_context
 from nova import exception
 from nova.openstack.common import cfg
@@ -59,8 +58,9 @@ xenapi_vmops_opts = [
                help='The XenAPI VIF driver using XenServer Network APIs.')
     ]
 
-CONF = config.CONF
+CONF = cfg.CONF
 CONF.register_opts(xenapi_vmops_opts)
+CONF.import_opt('host', 'nova.config')
 CONF.import_opt('vncserver_proxyclient_address', 'nova.vnc')
 
 DEFAULT_FIREWALL_DRIVER = "%s.%s" % (
@@ -770,8 +770,10 @@ class VMOps(object):
         """
         vm_ref = self._get_vm_opaque_ref(instance)
         sr_path = vm_utils.get_sr_path(self._session)
-        resize_down = (instance['auto_disk_config'] and
-                       instance['root_gb'] > instance_type['root_gb'])
+        resize_down = instance['root_gb'] > instance_type['root_gb']
+        if resize_down and not instance['auto_disk_config']:
+            reason = _('Resize down not allowed without auto_disk_config')
+            raise exception.ResizeError(reason=reason)
 
         # 0. Zero out the progress to begin
         self._update_instance_progress(context, instance,

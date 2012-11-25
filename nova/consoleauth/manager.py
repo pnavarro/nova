@@ -20,7 +20,6 @@
 
 import time
 
-from nova import config
 from nova import manager
 from nova.openstack.common import cfg
 from nova.openstack.common import jsonutils
@@ -38,8 +37,9 @@ consoleauth_opts = [
                help='Manager for console auth'),
     ]
 
-CONF = config.CONF
+CONF = cfg.CONF
 CONF.register_opts(consoleauth_opts)
+CONF.import_opt('memcached_servers', 'nova.config')
 
 
 class ConsoleAuthManager(manager.Manager):

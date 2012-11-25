@@ -22,17 +22,19 @@ import copy
 from nova.compute import instance_types
 from nova.compute import task_states
 from nova.compute import vm_states
-from nova import config
 from nova import context
 from nova import db
 from nova.network import api as network_api
 from nova import notifications
+from nova.openstack.common import cfg
 from nova.openstack.common import log as logging
 from nova.openstack.common.notifier import api as notifier_api
 from nova.openstack.common.notifier import test_notifier
 from nova import test
 from nova.tests import fake_network
 
+CONF = cfg.CONF
+CONF.import_opt('compute_driver', 'nova.virt.driver')
 LOG = logging.getLogger(__name__)
 
 
@@ -81,6 +83,7 @@ class NotificationsTestCase(test.TestCase):
         inst['access_ip_v4'] = '1.2.3.4'
         inst['access_ip_v6'] = 'feed:5eed'
         inst['display_name'] = 'test_instance'
+        inst['hostname'] = 'test_instance_hostname'
         if params:
             inst.update(params)
         return db.instance_create(self.context, inst)
@@ -210,6 +213,7 @@ class NotificationsTestCase(test.TestCase):
         access_ip_v4 = self.instance["access_ip_v4"]
         access_ip_v6 = self.instance["access_ip_v6"]
         display_name = self.instance["display_name"]
+        hostname = self.instance["hostname"]
 
         self.assertEquals(vm_states.BUILDING, payload["old_state"])
         self.assertEquals(vm_states.ACTIVE, payload["state"])
@@ -218,6 +222,7 @@ class NotificationsTestCase(test.TestCase):
         self.assertEquals(payload["access_ip_v4"], access_ip_v4)
         self.assertEquals(payload["access_ip_v6"], access_ip_v6)
         self.assertEquals(payload["display_name"], display_name)
+        self.assertEquals(payload["hostname"], hostname)
 
     def test_task_update_with_states(self):
         self.flags(notify_on_state_change="vm_and_task_state")
@@ -231,6 +236,7 @@ class NotificationsTestCase(test.TestCase):
         access_ip_v4 = self.instance["access_ip_v4"]
         access_ip_v6 = self.instance["access_ip_v6"]
         display_name = self.instance["display_name"]
+        hostname = self.instance["hostname"]
 
         self.assertEquals(vm_states.BUILDING, payload["old_state"])
         self.assertEquals(vm_states.BUILDING, payload["state"])
@@ -239,6 +245,7 @@ class NotificationsTestCase(test.TestCase):
         self.assertEquals(payload["access_ip_v4"], access_ip_v4)
         self.assertEquals(payload["access_ip_v6"], access_ip_v6)
         self.assertEquals(payload["display_name"], display_name)
+        self.assertEquals(payload["hostname"], hostname)
 
     def test_update_no_service_name(self):
         notifications.send_update_with_states(self.context, self.instance,

@@ -30,7 +30,6 @@ import time
 import eventlet
 import greenlet
 
-from nova import config
 from nova import context
 from nova import db
 from nova import exception
@@ -90,8 +89,10 @@ service_opts = [
                help='Number of workers for metadata service'),
     ]
 
-CONF = config.CONF
+CONF = cfg.CONF
 CONF.register_opts(service_opts)
+CONF.import_opt('host', 'nova.config')
+CONF.import_opt('node_availability_zone', 'nova.config')
 
 
 class SignalExit(SystemExit):
@@ -400,14 +401,14 @@ class Service(object):
         except exception.NotFound:
             self._create_service_ref(ctxt)
 
-        self.manager.pre_start_hook()
-
         if self.backdoor_port is not None:
             self.manager.backdoor_port = self.backdoor_port
 
         self.conn = rpc.create_connection(new=True)
         LOG.debug(_("Creating Consumer connection for Service %s") %
                   self.topic)
+
+        self.manager.pre_start_hook(rpc_connection=self.conn)
 
         rpc_dispatcher = self.manager.create_rpc_dispatcher()
 
@@ -477,8 +478,10 @@ class Service(object):
         if not topic:
             topic = binary.rpartition('nova-')[2]
         if not manager:
-            manager = CONF.get('%s_manager' %
-                                binary.rpartition('nova-')[2], None)
+            manager_cls = ('%s_manager' %
+                           binary.rpartition('nova-')[2])
+            CONF.import_opt(manager_cls, 'nova.config')
+            manager = CONF.get(manager_cls, None)
         if report_interval is None:
             report_interval = CONF.report_interval
         if periodic_interval is None:

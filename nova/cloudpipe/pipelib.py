@@ -28,7 +28,6 @@ import zipfile
 
 from nova import compute
 from nova.compute import instance_types
-from nova import config
 from nova import crypto
 from nova import db
 from nova import exception
@@ -53,8 +52,13 @@ cloudpipe_opts = [
                help=_('Netmask to push into openvpn config')),
     ]
 
-CONF = config.CONF
+CONF = cfg.CONF
 CONF.register_opts(cloudpipe_opts)
+CONF.import_opt('ec2_dmz_host', 'nova.config')
+CONF.import_opt('ec2_port', 'nova.config')
+CONF.import_opt('vpn_image_id', 'nova.config')
+CONF.import_opt('vpn_key_suffix', 'nova.config')
+CONF.import_opt('pybasedir', 'nova.config')
 CONF.import_opt('cnt_vpn_clients', 'nova.network.manager')
 
 LOG = logging.getLogger(__name__)

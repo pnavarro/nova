@@ -43,7 +43,6 @@ these objects be simple dictionaries.
 
 """
 
-from nova import config
 from nova import exception
 from nova.openstack.common import cfg
 from nova import utils
@@ -64,7 +63,7 @@ db_opts = [
                help='Template string to be used to generate snapshot names'),
     ]
 
-CONF = config.CONF
+CONF = cfg.CONF
 CONF.register_opts(db_opts)
 
 IMPL = utils.LazyPluggable('db_backend',
@@ -699,15 +698,6 @@ def instance_remove_security_group(context, instance_id, security_group_id):
 
 
 ###################
-
-
-def instance_info_cache_create(context, values):
-    """Create a new instance cache record in the table.
-
-    :param context: = request context object
-    :param values: = dict containing column values
-    """
-    return IMPL.instance_info_cache_create(context, values)
 
 
 def instance_info_cache_get(context, instance_uuid):
@@ -1529,9 +1519,9 @@ def get_instance_uuid_by_ec2_id(context, ec2_id):
     return IMPL.get_instance_uuid_by_ec2_id(context, ec2_id)
 
 
-def ec2_instance_create(context, instance_ec2_id):
+def ec2_instance_create(context, instance_uuid, id=None):
     """Create the ec2 id to instance uuid mapping on demand"""
-    return IMPL.ec2_instance_create(context, instance_ec2_id)
+    return IMPL.ec2_instance_create(context, instance_uuid, id)
 
 
 ####################

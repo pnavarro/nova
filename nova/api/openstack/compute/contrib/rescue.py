@@ -21,13 +21,14 @@ from nova.api.openstack import common
 from nova.api.openstack import extensions as exts
 from nova.api.openstack import wsgi
 from nova import compute
-from nova import config
 from nova import exception
+from nova.openstack.common import cfg
 from nova.openstack.common import log as logging
 from nova import utils
 
 
-CONF = config.CONF
+CONF = cfg.CONF
+CONF.import_opt('password_length', 'nova.config')
 LOG = logging.getLogger(__name__)
 authorize = exts.extension_authorizer('compute', 'rescue')
 

@@ -26,10 +26,10 @@ import sys
 import uuid
 
 from nova.compute import power_state
-from nova import config
 from nova import context
 from nova import db
 from nova.image import glance
+from nova.openstack.common import cfg
 from nova.tests import fake_network
 from nova.tests.hyperv import basetestcase
 from nova.tests.hyperv import db_fakes
@@ -41,7 +41,7 @@ from nova.virt.hyperv import driver as driver_hyperv
 from nova.virt.hyperv import vmutils
 from nova.virt import images
 
-CONF = config.CONF
+CONF = cfg.CONF
 
 
 class HyperVAPITestCase(basetestcase.BaseTestCase):
@@ -191,7 +191,7 @@ class HyperVAPITestCase(basetestcase.BaseTestCase):
         self._spawn_instance(True)
         info = self._conn.get_info(self._instance_data)
 
-        self.assertEquals(info["state"], str(power_state.RUNNING))
+        self.assertEquals(info["state"], power_state.RUNNING)
 
     def test_spawn_cow_image(self):
         self._test_spawn_instance(True)

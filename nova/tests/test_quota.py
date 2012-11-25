@@ -20,12 +20,12 @@ import datetime
 
 from nova import compute
 from nova.compute import instance_types
-from nova import config
 from nova import context
 from nova import db
 from nova.db.sqlalchemy import api as sqa_api
 from nova.db.sqlalchemy import models as sqa_models
 from nova import exception
+from nova.openstack.common import cfg
 from nova.openstack.common import rpc
 from nova.openstack.common import timeutils
 from nova import quota
@@ -33,7 +33,9 @@ from nova.scheduler import driver as scheduler_driver
 from nova import test
 import nova.tests.image.fake
 
-CONF = config.CONF
+CONF = cfg.CONF
+CONF.import_opt('scheduler_topic', 'nova.config')
+CONF.import_opt('compute_driver', 'nova.virt.driver')
 
 
 class QuotaIntegrationTestCase(test.TestCase):

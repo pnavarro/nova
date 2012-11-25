@@ -29,15 +29,19 @@ import urlparse
 import glanceclient
 import glanceclient.exc
 
-from nova import config
 from nova import exception
+from nova.openstack.common import cfg
 from nova.openstack.common import jsonutils
 from nova.openstack.common import log as logging
 from nova.openstack.common import timeutils
 
 
 LOG = logging.getLogger(__name__)
-CONF = config.CONF
+CONF = cfg.CONF
+CONF.import_opt('auth_strategy', 'nova.config')
+CONF.import_opt('glance_api_insecure', 'nova.config')
+CONF.import_opt('glance_api_servers', 'nova.config')
+CONF.import_opt('glance_num_retries', 'nova.config')
 
 
 def _parse_image_ref(image_href):

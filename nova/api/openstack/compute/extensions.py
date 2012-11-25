@@ -16,13 +16,14 @@
 #    under the License.
 
 from nova.api.openstack import extensions as base_extensions
-from nova import config
+from nova.openstack.common import cfg
 from nova.openstack.common import log as logging
 from nova.openstack.common.plugin import pluginmanager
 
 
 LOG = logging.getLogger(__name__)
-CONF = config.CONF
+CONF = cfg.CONF
+CONF.import_opt('osapi_compute_extension', 'nova.config')
 
 
 class ExtensionManager(base_extensions.ExtensionManager):

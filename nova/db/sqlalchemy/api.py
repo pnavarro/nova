@@ -37,18 +37,21 @@ from sqlalchemy.sql import func
 
 from nova import block_device
 from nova.common.sqlalchemyutils import paginate_query
+from nova.compute import task_states
 from nova.compute import vm_states
-from nova import config
 from nova import db
 from nova.db.sqlalchemy import models
 from nova.db.sqlalchemy.session import get_session
 from nova import exception
+from nova.openstack.common import cfg
 from nova.openstack.common import log as logging
 from nova.openstack.common import timeutils
 from nova.openstack.common import uuidutils
 
 
-CONF = config.CONF
+CONF = cfg.CONF
+CONF.import_opt('compute_topic', 'nova.config')
+CONF.import_opt('sql_connection', 'nova.db.sqlalchemy.session')
 
 LOG = logging.getLogger(__name__)
 
@@ -1351,6 +1354,34 @@ def _metadata_refs(metadata_dict, meta_class):
     return metadata_refs
 
 
+def _validate_unique_server_name(context, session, name):
+    if not CONF.osapi_compute_unique_server_name_scope:
+        return
+
+    search_opts = {'deleted': False}
+    if CONF.osapi_compute_unique_server_name_scope == 'project':
+        search_opts['project_id'] = context.project_id
+        instance_list = instance_get_all_by_filters(context, search_opts,
+                                                    'created_at', 'desc',
+                                                    session=session)
+    elif CONF.osapi_compute_unique_server_name_scope == 'global':
+        instance_list = instance_get_all_by_filters(context.elevated(),
+                                                    search_opts,
+                                                    'created_at', 'desc',
+                                                    session=session)
+    else:
+        msg = _('Unknown osapi_compute_unique_server_name_scope value: %s'
+                ' Flag must be empty, "global" or'
+                ' "project"') % CONF.osapi_compute_unique_server_name_scope
+        LOG.warn(msg)
+        return
+
+    lowername = name.lower()
+    for instance in instance_list:
+        if instance['hostname'].lower() == lowername:
+            raise exception.InstanceExists(name=instance['hostname'])
+
+
 @require_context
 def instance_create(context, values):
     """Create a new Instance record in the database.
@@ -1390,6 +1421,8 @@ def instance_create(context, values):
 
     session = get_session()
     with session.begin():
+        if 'hostname' in values:
+            _validate_unique_server_name(context, session, values['hostname'])
         instance_ref.security_groups = _get_sec_group_models(session,
                 security_groups)
         instance_ref.save(session=session)
@@ -1398,7 +1431,7 @@ def instance_create(context, values):
         instance_ref.instance_type
 
     # create the instance uuid to ec2_id mapping entry for instance
-    ec2_instance_create(context, instance_ref['uuid'])
+    db.ec2_instance_create(context, instance_ref['uuid'])
 
     return instance_ref
 
@@ -1428,7 +1461,7 @@ def instance_destroy(context, instance_uuid, constraint=None):
             raise exception.InvalidUUID(instance_uuid)
 
         query = session.query(models.Instance).\
-                        filter_by(uuid=instance_ref['uuid'])
+                        filter_by(uuid=instance_uuid)
         if constraint is not None:
             query = constraint.apply(models.Instance, query)
         count = query.update({'deleted': True,
@@ -1437,13 +1470,16 @@ def instance_destroy(context, instance_uuid, constraint=None):
         if count == 0:
             raise exception.ConstraintNotMet()
         session.query(models.SecurityGroupInstanceAssociation).\
-                filter_by(instance_uuid=instance_ref['uuid']).\
+                filter_by(instance_uuid=instance_uuid).\
                 update({'deleted': True,
                         'deleted_at': timeutils.utcnow(),
                         'updated_at': literal_column('updated_at')})
 
-        instance_info_cache_delete(context, instance_ref['uuid'],
-                                   session=session)
+        session.query(models.InstanceInfoCache).\
+                 filter_by(instance_uuid=instance_uuid).\
+                 update({'deleted': True,
+                         'deleted_at': timeutils.utcnow(),
+                         'updated_at': literal_column('updated_at')})
     return instance_ref
 
 
@@ -1501,14 +1537,16 @@ def instance_get_all(context, columns_to_join=None):
 
 @require_context
 def instance_get_all_by_filters(context, filters, sort_key, sort_dir,
-                                limit=None, marker=None):
+                                limit=None, marker=None, session=None):
     """Return instances that match all filters.  Deleted instances
     will be returned by default, unless there's a filter that says
     otherwise"""
 
     sort_fn = {'desc': desc, 'asc': asc}
 
-    session = get_session()
+    if not session:
+        session = get_session()
+
     query_prefix = session.query(models.Instance).\
             options(joinedload('info_cache')).\
             options(joinedload('security_groups')).\
@@ -1722,18 +1760,13 @@ def instance_floating_address_get_all(context, instance_uuid):
 
 
 @require_admin_context
-def instance_get_all_hung_in_rebooting(context, reboot_window, session=None):
+def instance_get_all_hung_in_rebooting(context, reboot_window):
     reboot_window = (timeutils.utcnow() -
                      datetime.timedelta(seconds=reboot_window))
 
-    if not session:
-        session = get_session()
-
-    results = session.query(models.Instance).\
+    return model_query(context, models.Instance).\
             filter(models.Instance.updated_at <= reboot_window).\
-            filter_by(task_state="rebooting").all()
-
-    return results
+            filter_by(task_state=task_states.REBOOTING).all()
 
 
 @require_context
@@ -1829,6 +1862,12 @@ def _instance_update(context, instance_uuid, values, copy_old_instance=False):
                 raise exception.UnexpectedTaskStateError(actual=actual_state,
                                                          expected=expected)
 
+        if ("hostname" in values and
+            values["hostname"].lower() != instance_ref["hostname"].lower()):
+                _validate_unique_server_name(context,
+                                             session,
+                                             values['hostname'])
+
         if copy_old_instance:
             old_instance_ref = copy.copy(instance_ref)
         else:
@@ -1861,25 +1900,17 @@ def _instance_update(context, instance_uuid, values, copy_old_instance=False):
 
 def instance_add_security_group(context, instance_uuid, security_group_id):
     """Associate the given security group with the given instance"""
-    session = get_session()
-    with session.begin():
-        instance_ref = instance_get_by_uuid(context, instance_uuid,
-                                            session=session)
-        security_group_ref = security_group_get(context,
-                                                security_group_id,
-                                                session=session)
-        instance_ref.security_groups += [security_group_ref]
-        instance_ref.save(session=session)
+    sec_group_ref = models.SecurityGroupInstanceAssociation()
+    sec_group_ref.update({'instance_uuid': instance_uuid,
+                          'security_group_id': security_group_id})
+    sec_group_ref.save()
 
 
 @require_context
 def instance_remove_security_group(context, instance_uuid, security_group_id):
     """Disassociate the given security group from the given instance"""
-    session = get_session()
-    instance_ref = instance_get_by_uuid(context, instance_uuid,
-                                        session=session)
-    session.query(models.SecurityGroupInstanceAssociation).\
-                filter_by(instance_uuid=instance_ref['uuid']).\
+    model_query(context, models.SecurityGroupInstanceAssociation).\
+                filter_by(instance_uuid=instance_uuid).\
                 filter_by(security_group_id=security_group_id).\
                 update({'deleted': True,
                         'deleted_at': timeutils.utcnow(),
@@ -1890,74 +1921,56 @@ def instance_remove_security_group(context, instance_uuid, security_group_id):
 
 
 @require_context
-def instance_info_cache_create(context, values):
-    """Create a new instance cache record in the table.
-
-    :param context: = request context object
-    :param values: = dict containing column values
-    """
-    info_cache = models.InstanceInfoCache()
-    info_cache.update(values)
-
-    session = get_session()
-    with session.begin():
-        info_cache.save(session=session)
-    return info_cache
-
-
-@require_context
-def instance_info_cache_get(context, instance_uuid, session=None):
+def instance_info_cache_get(context, instance_uuid):
     """Gets an instance info cache from the table.
 
     :param instance_uuid: = uuid of the info cache's instance
     :param session: = optional session object
     """
-    session = session or get_session()
-
-    info_cache = session.query(models.InstanceInfoCache).\
+    return model_query(context, models.InstanceInfoCache).\
                          filter_by(instance_uuid=instance_uuid).\
                          first()
-    return info_cache
 
 
 @require_context
-def instance_info_cache_update(context, instance_uuid, values,
-                               session=None):
+def instance_info_cache_update(context, instance_uuid, values):
     """Update an instance info cache record in the table.
 
     :param instance_uuid: = uuid of info cache's instance
     :param values: = dict containing column values to update
     :param session: = optional session object
     """
-    session = session or get_session()
-    info_cache = instance_info_cache_get(context, instance_uuid,
-                                         session=session)
-    if info_cache:
-        # NOTE(tr3buchet): let's leave it alone if it's already deleted
-        if info_cache['deleted']:
-            return info_cache
+    session = get_session()
+    with session.begin():
+        info_cache = model_query(context, models.InstanceInfoCache,
+                                 session=session).\
+                         filter_by(instance_uuid=instance_uuid).\
+                         first()
 
-        info_cache.update(values)
-        info_cache.save(session=session)
-    else:
-        # NOTE(tr3buchet): just in case someone blows away an instance's
-        #                  cache entry
-        values['instance_uuid'] = instance_uuid
-        info_cache = instance_info_cache_create(context, values)
+        if info_cache and not info_cache['deleted']:
+            # NOTE(tr3buchet): let's leave it alone if it's already deleted
+            info_cache.update(values)
+        else:
+            # NOTE(tr3buchet): just in case someone blows away an instance's
+            #                  cache entry
+            info_cache = models.InstanceInfoCache()
+            info_cache.update({'instance_uuid': instance_uuid})
 
     return info_cache
 
 
 @require_context
-def instance_info_cache_delete(context, instance_uuid, session=None):
+def instance_info_cache_delete(context, instance_uuid):
     """Deletes an existing instance_info_cache record
 
     :param instance_uuid: = uuid of the instance tied to the cache record
     :param session: = optional session object
     """
-    values = {'deleted': True,
-              'deleted_at': timeutils.utcnow()}
-    instance_info_cache_update(context, instance_uuid, values, session)
+    model_query(context, models.InstanceInfoCache).\
+                         filter_by(instance_uuid=instance_uuid).\
+                         update({'deleted': True,
+                                 'deleted_at': timeutils.utcnow(),
+                                 'updated_at': literal_column('updated_at')})
 
 
 ###################

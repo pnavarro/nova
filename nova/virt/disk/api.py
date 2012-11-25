@@ -32,15 +32,13 @@ import tempfile
 if os.name != 'nt':
     import crypt
 
-from nova import config
 from nova import exception
 from nova.openstack.common import cfg
 from nova.openstack.common import jsonutils
 from nova.openstack.common import log as logging
 from nova import utils
-from nova.virt.disk.mount import guestfs
-from nova.virt.disk.mount import loop
-from nova.virt.disk.mount import nbd
+from nova.virt.disk.mount import api as mount
+from nova.virt.disk.vfs import api as vfs
 from nova.virt import images
 
 
@@ -50,9 +48,6 @@ disk_opts = [
     cfg.StrOpt('injected_network_template',
                default='$pybasedir/nova/virt/interfaces.template',
                help='Template file for injected network'),
-    cfg.ListOpt('img_handlers',
-                default=['loop', 'nbd', 'guestfs'],
-                help='Order of methods used to mount disk images'),
 
     # NOTE(yamahata): ListOpt won't work because the command may include a
     #                 comma. For example:
@@ -76,8 +71,9 @@ disk_opts = [
                          'The format is <os_type>=<mkfs command>'),
     ]
 
-CONF = config.CONF
+CONF = cfg.CONF
 CONF.register_opts(disk_opts)
+CONF.import_opt('pybasedir', 'nova.config')
 
 _MKFS_COMMAND = {}
 _DEFAULT_MKFS_COMMAND = None
@@ -173,25 +169,14 @@ class _DiskImage(object):
         self.image = image
         self.partition = partition
         self.mount_dir = mount_dir
+        self.use_cow = use_cow
 
         # Internal
         self._mkdir = False
         self._mounter = None
         self._errors = []
 
-        # As a performance tweak, don't bother trying to
-        # directly loopback mount a cow image.
-        self.handlers = CONF.img_handlers[:]
-        if use_cow and 'loop' in self.handlers:
-            self.handlers.remove('loop')
-
-        if not self.handlers:
-            msg = _('no capable image handler configured')
-            raise exception.NovaException(msg)
-
         if mount_dir:
-            # Note the os.path.ismount() shortcut doesn't
-            # work with libguestfs due to permissions issues.
             device = self._device_for_path(mount_dir)
             if device:
                 self._reset(device)
@@ -210,12 +195,10 @@ class _DiskImage(object):
 
     def _reset(self, device):
         """Reset internal state for a previously mounted directory."""
-        mounter_cls = self._handler_class(device=device)
-        mounter = mounter_cls(image=self.image,
-                              partition=self.partition,
-                              mount_dir=self.mount_dir,
-                              device=device)
-        self._mounter = mounter
+        self._mounter = mount.Mount.instance_for_device(self.image,
+                                                        self.mount_dir,
+                                                        self.partition,
+                                                        device)
 
         mount_name = os.path.basename(self.mount_dir or '')
         self._mkdir = mount_name.startswith(self.tmp_prefix)
@@ -224,17 +207,6 @@ class _DiskImage(object):
     def errors(self):
         """Return the collated errors from all operations."""
         return '\n--\n'.join([''] + self._errors)
-
-    @staticmethod
-    def _handler_class(mode=None, device=None):
-        """Look up the appropriate class to use based on MODE or DEVICE."""
-        for cls in (loop.LoopMount, nbd.NbdMount, guestfs.GuestFSMount):
-            if mode and cls.mode == mode:
-                return cls
-            elif device and cls.device_id_string in device:
-                return cls
-        msg = _("no disk image handler for: %s") % mode or device
-        raise exception.NovaException(msg)
 
     def mount(self):
         """Mount a disk image, using the object attributes.
@@ -251,21 +223,19 @@ class _DiskImage(object):
             self.mount_dir = tempfile.mkdtemp(prefix=self.tmp_prefix)
             self._mkdir = True
 
-        try:
-            for h in self.handlers:
-                mounter_cls = self._handler_class(h)
-                mounter = mounter_cls(image=self.image,
-                                      partition=self.partition,
-                                      mount_dir=self.mount_dir)
-                if mounter.do_mount():
-                    self._mounter = mounter
-                    break
-                else:
-                    LOG.debug(mounter.error)
-                    self._errors.append(mounter.error)
-        finally:
-            if not self._mounter:
-                self.umount()  # rmdir
+        imgfmt = "raw"
+        if self.use_cow:
+            imgfmt = "qcow2"
+
+        mounter = mount.Mount.instance_for_format(self.image,
+                                                  self.mount_dir,
+                                                  self.partition,
+                                                  imgfmt)
+        if mounter.do_mount():
+            self._mounter = mounter
+        else:
+            LOG.debug(mounter.error)
+            self._errors.append(mounter.error)
 
         return bool(self._mounter)
 
@@ -274,6 +244,7 @@ class _DiskImage(object):
         try:
             if self._mounter:
                 self._mounter.do_umount()
+                self._mounter = None
         finally:
             if self._mkdir:
                 os.rmdir(self.mount_dir)
@@ -292,15 +263,20 @@ def inject_data(image,
     If partition is not specified it mounts the image as a single partition.
 
     """
-    img = _DiskImage(image=image, partition=partition, use_cow=use_cow)
-    if img.mount():
-        try:
-            inject_data_into_fs(img.mount_dir,
-                                key, net, metadata, admin_password, files)
-        finally:
-            img.umount()
-    else:
-        raise exception.NovaException(img.errors)
+    LOG.debug(_("Inject data image=%(image)s key=%(key)s net=%(net)s "
+                "metadata=%(metadata)s admin_password=ha-ha-not-telling-you "
+                "files=%(files)s partition=%(partition)s use_cow=%(use_cow)s")
+              % locals())
+    fmt = "raw"
+    if use_cow:
+        fmt = "qcow2"
+    fs = vfs.VFS.instance_for_image(image, fmt, partition)
+    fs.setup()
+    try:
+        inject_data_into_fs(fs,
+                            key, net, metadata, admin_password, files)
+    finally:
+        fs.teardown()
 
 
 def setup_container(image, container_dir, use_cow=False):
@@ -349,58 +325,32 @@ def inject_data_into_fs(fs, key, net, metadata, admin_password, files):
             _inject_file_into_fs(fs, path, contents)
 
 
-def _join_and_check_path_within_fs(fs, *args):
-    '''os.path.join() with safety check for injected file paths.
-
-    Join the supplied path components and make sure that the
-    resulting path we are injecting into is within the
-    mounted guest fs.  Trying to be clever and specifying a
-    path with '..' in it will hit this safeguard.
-    '''
-    absolute_path, _err = utils.execute('readlink', '-nm',
-                                        os.path.join(fs, *args),
-                                        run_as_root=True)
-    if not absolute_path.startswith(os.path.realpath(fs) + '/'):
-        raise exception.Invalid(_('injected file path not valid'))
-    return absolute_path
-
-
 def _inject_file_into_fs(fs, path, contents, append=False):
-    absolute_path = _join_and_check_path_within_fs(fs, path.lstrip('/'))
-
-    parent_dir = os.path.dirname(absolute_path)
-    utils.execute('mkdir', '-p', parent_dir, run_as_root=True)
-
-    args = []
+    LOG.debug(_("Inject file fs=%(fs)s path=%(path)s append=%(append)s") %
+              locals())
     if append:
-        args.append('-a')
-    args.append(absolute_path)
-
-    kwargs = dict(process_input=contents, run_as_root=True)
-
-    utils.execute('tee', *args, **kwargs)
+        fs.append_file(path, contents)
+    else:
+        fs.replace_file(path, contents)
 
 
 def _inject_metadata_into_fs(metadata, fs):
+    LOG.debug(_("Inject metadata fs=%(fs)s metadata=%(metadata)s") %
+              locals())
     metadata = dict([(m['key'], m['value']) for m in metadata])
     _inject_file_into_fs(fs, 'meta.js', jsonutils.dumps(metadata))
 
 
-def _setup_selinux_for_keys(fs):
+def _setup_selinux_for_keys(fs, sshdir):
     """Get selinux guests to ensure correct context on injected keys."""
 
-    se_cfg = _join_and_check_path_within_fs(fs, 'etc', 'selinux')
-    se_cfg, _err = utils.trycmd('readlink', '-e', se_cfg, run_as_root=True)
-    if not se_cfg:
+    if not fs.has_file(os.path.join("etc", "selinux")):
         return
 
-    rclocal = _join_and_check_path_within_fs(fs, 'etc', 'rc.local')
+    rclocal = os.path.join('etc', 'rc.local')
+    rc_d = os.path.join('etc', 'rc.d')
 
-    # Support systemd based systems
-    rc_d = _join_and_check_path_within_fs(fs, 'etc', 'rc.d')
-    rclocal_e, _err = utils.trycmd('readlink', '-e', rclocal, run_as_root=True)
-    rc_d_e, _err = utils.trycmd('readlink', '-e', rc_d, run_as_root=True)
-    if not rclocal_e and rc_d_e:
+    if not fs.has_file(rclocal) and fs.has_file(rc_d):
         rclocal = os.path.join(rc_d, 'rc.local')
 
     # Note some systems end rc.local with "exit 0"
@@ -409,12 +359,11 @@ def _setup_selinux_for_keys(fs):
     restorecon = [
         '#!/bin/sh\n',
         '# Added by Nova to ensure injected ssh keys have the right context\n',
-        'restorecon -RF /root/.ssh/ 2>/dev/null || :\n',
+        'restorecon -RF %s 2>/dev/null || :\n' % sshdir,
     ]
 
-    rclocal_rel = os.path.relpath(rclocal, fs)
-    _inject_file_into_fs(fs, rclocal_rel, ''.join(restorecon), append=True)
-    utils.execute('chmod', 'a+x', rclocal, run_as_root=True)
+    _inject_file_into_fs(fs, rclocal, ''.join(restorecon), append=True)
+    fs.set_permissions(rclocal, 0700)
 
 
 def _inject_key_into_fs(key, fs):
@@ -423,12 +372,15 @@ def _inject_key_into_fs(key, fs):
     key is an ssh key string.
     fs is the path to the base of the filesystem into which to inject the key.
     """
-    sshdir = _join_and_check_path_within_fs(fs, 'root', '.ssh')
-    utils.execute('mkdir', '-p', sshdir, run_as_root=True)
-    utils.execute('chown', 'root', sshdir, run_as_root=True)
-    utils.execute('chmod', '700', sshdir, run_as_root=True)
 
-    keyfile = os.path.join('root', '.ssh', 'authorized_keys')
+    LOG.debug(_("Inject key fs=%(fs)s key=%(key)s") %
+              locals())
+    sshdir = os.path.join('root', '.ssh')
+    fs.make_path(sshdir)
+    fs.set_ownership(sshdir, "root", "root")
+    fs.set_permissions(sshdir, 0700)
+
+    keyfile = os.path.join(sshdir, 'authorized_keys')
 
     key_data = ''.join([
         '\n',
@@ -440,7 +392,7 @@ def _inject_key_into_fs(key, fs):
 
     _inject_file_into_fs(fs, keyfile, key_data, append=True)
 
-    _setup_selinux_for_keys(fs)
+    _setup_selinux_for_keys(fs, sshdir)
 
 
 def _inject_net_into_fs(net, fs):
@@ -448,10 +400,13 @@ def _inject_net_into_fs(net, fs):
 
     net is the contents of /etc/network/interfaces.
     """
-    netdir = _join_and_check_path_within_fs(fs, 'etc', 'network')
-    utils.execute('mkdir', '-p', netdir, run_as_root=True)
-    utils.execute('chown', 'root:root', netdir, run_as_root=True)
-    utils.execute('chmod', 755, netdir, run_as_root=True)
+
+    LOG.debug(_("Inject key fs=%(fs)s net=%(net)s") %
+              locals())
+    netdir = os.path.join('etc', 'network')
+    fs.make_path(netdir)
+    fs.set_ownership(netdir, "root", "root")
+    fs.set_permissions(netdir, 0744)
 
     netfile = os.path.join('etc', 'network', 'interfaces')
     _inject_file_into_fs(fs, netfile, net)
@@ -472,6 +427,9 @@ def _inject_admin_password_into_fs(admin_passwd, fs):
     # files from the instance filesystem to local files, make any
     # necessary changes, and then copy them back.
 
+    LOG.debug(_("Inject admin password fs=%(fs)s "
+                "admin_passwd=ha-ha-not-telling-you") %
+              locals())
     admin_user = 'root'
 
     fd, tmp_passwd = tempfile.mkstemp()
@@ -479,19 +437,27 @@ def _inject_admin_password_into_fs(admin_passwd, fs):
     fd, tmp_shadow = tempfile.mkstemp()
     os.close(fd)
 
-    passwd_path = _join_and_check_path_within_fs(fs, 'etc', 'passwd')
-    shadow_path = _join_and_check_path_within_fs(fs, 'etc', 'shadow')
+    passwd_path = os.path.join('etc', 'passwd')
+    shadow_path = os.path.join('etc', 'shadow')
 
-    utils.execute('cp', passwd_path, tmp_passwd, run_as_root=True)
-    utils.execute('cp', shadow_path, tmp_shadow, run_as_root=True)
-    _set_passwd(admin_user, admin_passwd, tmp_passwd, tmp_shadow)
-    utils.execute('cp', tmp_passwd, passwd_path, run_as_root=True)
-    os.unlink(tmp_passwd)
-    utils.execute('cp', tmp_shadow, shadow_path, run_as_root=True)
-    os.unlink(tmp_shadow)
+    passwd_data = fs.read_file(passwd_path)
+    shadow_data = fs.read_file(shadow_path)
+
+    new_shadow_data = _set_passwd(admin_user, admin_passwd,
+                                  passwd_data, shadow_data)
+
+    fs.replace_file(shadow_path, new_shadow_data)
 
 
-def _set_passwd(username, admin_passwd, passwd_file, shadow_file):
+def _generate_salt():
+    salt_set = ('abcdefghijklmnopqrstuvwxyz'
+                'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+                '0123456789./')
+    salt = 16 * ' '
+    return ''.join([random.choice(salt_set) for c in salt])
+
+
+def _set_passwd(username, admin_passwd, passwd_data, shadow_data):
     """set the password for username to admin_passwd
 
     The passwd_file is not modified.  The shadow_file is updated.
@@ -508,14 +474,10 @@ def _set_passwd(username, admin_passwd, passwd_file, shadow_file):
     if os.name == 'nt':
         raise exception.NovaException(_('Not implemented on Windows'))
 
-    salt_set = ('abcdefghijklmnopqrstuvwxyz'
-                'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
-                '0123456789./')
     # encryption algo - id pairs for crypt()
     algos = {'SHA-512': '$6$', 'SHA-256': '$5$', 'MD5': '$1$', 'DES': ''}
 
-    salt = 16 * ' '
-    salt = ''.join([random.choice(salt_set) for c in salt])
+    salt = _generate_salt()
 
     # crypt() depends on the underlying libc, and may not support all
     # forms of hash. We try md5 first. If we get only 13 characters back,
@@ -528,39 +490,34 @@ def _set_passwd(username, admin_passwd, passwd_file, shadow_file):
     if len(encrypted_passwd) == 13:
         encrypted_passwd = crypt.crypt(admin_passwd, algos['DES'] + salt)
 
-    try:
-        p_file = open(passwd_file, 'rb')
-        s_file = open(shadow_file, 'rb')
+    p_file = passwd_data.split("\n")
+    s_file = shadow_data.split("\n")
 
-        # username MUST exist in passwd file or it's an error
-        found = False
-        for entry in p_file:
-            split_entry = entry.split(':')
-            if split_entry[0] == username:
-                found = True
-                break
-        if not found:
-            msg = _('User %(username)s not found in password file.')
-            raise exception.NovaException(msg % username)
+     # username MUST exist in passwd file or it's an error
+    found = False
+    for entry in p_file:
+        split_entry = entry.split(':')
+        if split_entry[0] == username:
+            found = True
+            break
+    if not found:
+        msg = _('User %(username)s not found in password file.')
+        raise exception.NovaException(msg % username)
 
-        # update password in the shadow file.It's an error if the
-        # the user doesn't exist.
-        new_shadow = list()
-        found = False
-        for entry in s_file:
-            split_entry = entry.split(':')
-            if split_entry[0] == username:
-                split_entry[1] = encrypted_passwd
-                found = True
-            new_entry = ':'.join(split_entry)
-            new_shadow.append(new_entry)
-        s_file.close()
-        if not found:
-            msg = _('User %(username)s not found in shadow file.')
-            raise exception.NovaException(msg % username)
-        s_file = open(shadow_file, 'wb')
-        for entry in new_shadow:
-            s_file.write(entry)
-    finally:
-        p_file.close()
-        s_file.close()
+    # update password in the shadow file.It's an error if the
+    # the user doesn't exist.
+    new_shadow = list()
+    found = False
+    for entry in s_file:
+        split_entry = entry.split(':')
+        if split_entry[0] == username:
+            split_entry[1] = encrypted_passwd
+            found = True
+        new_entry = ':'.join(split_entry)
+        new_shadow.append(new_entry)
+
+    if not found:
+        msg = _('User %(username)s not found in shadow file.')
+        raise exception.NovaException(msg % username)
+
+    return "\n".join(new_shadow)

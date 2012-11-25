@@ -22,13 +22,14 @@ import copy
 import datetime
 import uuid
 
-from nova import config
 from nova import exception
 import nova.image.glance
+from nova.openstack.common import cfg
 from nova.openstack.common import log as logging
 
 
-CONF = config.CONF
+CONF = cfg.CONF
+CONF.import_opt('null_kernel', 'nova.compute.api')
 LOG = logging.getLogger(__name__)
 
 

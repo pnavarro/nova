@@ -22,13 +22,13 @@ import webob.dec
 import webob.exc
 
 from nova.api import ec2
-from nova import config
 from nova import context
 from nova import exception
+from nova.openstack.common import cfg
 from nova.openstack.common import timeutils
 from nova import test
 
-CONF = config.CONF
+CONF = cfg.CONF
 
 
 @webob.dec.wsgify
@@ -115,6 +115,15 @@ class ExecutorTestCase(test.TestCase):
             raise exception.InstanceNotFound(instance_id=5)
         result = self._execute(not_found)
         self.assertIn('i-00000005', self._extract_message(result))
+
+    def test_instance_not_found_none(self):
+        def not_found(context):
+            raise exception.InstanceNotFound(instance_id=None)
+
+        # NOTE(mikal): we want no exception to be raised here, which was what
+        # was happening in bug/1080406
+        result = self._execute(not_found)
+        self.assertIn('None', self._extract_message(result))
 
     def test_snapshot_not_found(self):
         def not_found(context):

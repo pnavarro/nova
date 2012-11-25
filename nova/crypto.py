@@ -28,7 +28,6 @@ import hashlib
 import os
 import string
 
-from nova import config
 from nova import context
 from nova import db
 from nova import exception
@@ -72,8 +71,9 @@ crypto_opts = [
                       'project, timestamp')),
     ]
 
-CONF = config.CONF
+CONF = cfg.CONF
 CONF.register_opts(crypto_opts)
+CONF.import_opt('state_path', 'nova.config')
 
 
 def ca_folder(project_id=None):
