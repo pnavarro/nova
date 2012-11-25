@@ -71,7 +71,8 @@ class VolumeOps(baseops.BaseOps):
     def _get_volume_utils(self):
         if(not CONF.force_volumeutils_v1) and \
         (self._get_hypervisor_version() >= 6.2):
-            return volumeutilsV2.VolumeUtilsV2(self._conn_storage)
+            return volumeutilsV2.VolumeUtilsV2(
+                                self._conn_storage, self._conn_wmi)
         else:
             return volumeutils.VolumeUtils(self._conn_wmi)
 
