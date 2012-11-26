@@ -19,11 +19,14 @@
 Helper methods for operations related to the management of volumes,
 and storage repositories for Windows 2012
 """
+import time
 
+from nova.openstack.common import cfg
 from nova.openstack.common import log as logging
 from nova.virt.hyperv import basevolumeutils
 
 LOG = logging.getLogger(__name__)
+CONF = cfg.CONF
 
 
 class VolumeUtilsV2(basevolumeutils.BaseVolumeUtils):
@@ -35,7 +38,6 @@ class VolumeUtilsV2(basevolumeutils.BaseVolumeUtils):
         def login_storage_target(self, target_lun, target_iqn,
             target_portal):
             """Add target portal, list targets and logins to the target"""
-
             separator = target_portal.find(':')
             target_address = target_portal[:separator]
             target_port = target_portal[separator + 1:]
@@ -47,6 +49,8 @@ class VolumeUtilsV2(basevolumeutils.BaseVolumeUtils):
             target = self._conn_storage.__getattr__("MSFT_iSCSITarget")
             target.Connect(NodeAddress=target_iqn,
                            IsPersistent=True)
+            #Waiting the disk to be mounted. Research this
+            time.sleep(CONF.hyperv_wait_between_attach_retry)
 
         def logout_storage_target(self, target_iqn):
             """ Logs out storage target through its session id """
