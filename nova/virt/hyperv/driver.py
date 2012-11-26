@@ -61,8 +61,6 @@ Using the Python WMI library:
 
 """
 
-from nova import config
-from nova.openstack.common import cfg
 from nova.openstack.common import log as logging
 from nova.virt import driver
 from nova.virt.hyperv import hostops

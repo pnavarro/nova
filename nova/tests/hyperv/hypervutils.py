@@ -39,7 +39,7 @@ class HyperVUtils(object):
         self.__conn_wmi = None
         self.__conn_storage = None
         self._volumeutils = volumeutilsV2.VolumeUtilsV2(
-                        self._conn_storage, self._conn_wmi)
+                                        self._conn_storage, self._conn_wmi)
 
     @property
     def _conn(self):
