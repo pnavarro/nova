@@ -32,6 +32,7 @@ from nova.virt.hyperv import basevolumeutils
 LOG = logging.getLogger(__name__)
 CONF = cfg.CONF
 
+
 class VolumeUtils(basevolumeutils.BaseVolumeUtils):
 
         def __init__(self, conn_wmi):
