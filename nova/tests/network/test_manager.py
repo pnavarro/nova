@@ -296,6 +296,9 @@ class FlatNetworkTestCase(test.TestCase):
         db.instance_get(mox.IgnoreArg(),
                         mox.IgnoreArg()).AndReturn({'security_groups':
                                                              [{'id': 0}]})
+        db.instance_get(mox.IgnoreArg(),
+                mox.IgnoreArg()).AndReturn({'security_groups':
+                                            [{'id':0, 'name':'test'}]})
         db.fixed_ip_associate_pool(mox.IgnoreArg(),
                                    mox.IgnoreArg(),
                                    mox.IgnoreArg()).AndReturn('192.168.0.101')
@@ -328,6 +331,10 @@ class FlatNetworkTestCase(test.TestCase):
         db.instance_get(mox.IgnoreArg(),
                         mox.IgnoreArg()).AndReturn({'security_groups':
                                                              [{'id': 0}]})
+        db.instance_get(mox.IgnoreArg(),
+                mox.IgnoreArg()).AndReturn({'security_groups':
+                                            [{'id':0, 'name':'test'}]})
+
         db.fixed_ip_associate_pool(mox.IgnoreArg(),
                                    mox.IgnoreArg(),
                                    mox.IgnoreArg()).AndReturn('192.168.0.101')
@@ -394,6 +401,9 @@ class FlatNetworkTestCase(test.TestCase):
         db.instance_get(mox.IgnoreArg(),
                         mox.IgnoreArg()).AndReturn({'security_groups':
                                                              [{'id': 0}]})
+        db.instance_get(mox.IgnoreArg(),
+                mox.IgnoreArg()).AndReturn({'security_groups':
+                                            [{'id':0, 'name':'test'}]})
 
         db.fixed_ip_associate_pool(mox.IgnoreArg(),
                                    mox.IgnoreArg(),
@@ -676,6 +686,7 @@ class VlanNetworkTestCase(test.TestCase):
         def fake5(*args, **kwargs):
             return {'address': '10.0.0.1',
                     'pool': 'nova',
+                    'instance_uuid': FAKEUUID,
                     'interface': 'eth0',
                     'network_id': 'blahblah'}
 
@@ -704,6 +715,7 @@ class VlanNetworkTestCase(test.TestCase):
         self.assertRaises(exception.NoFloatingIpInterface,
                           self.network._associate_floating_ip,
                           ctxt,
+                          mox.IgnoreArg(),
                           mox.IgnoreArg(),
                           mox.IgnoreArg(),
                           mox.IgnoreArg())
@@ -822,6 +834,7 @@ class VlanNetworkTestCase(test.TestCase):
         def fake5(*args, **kwargs):
             return {'address': '10.0.0.1',
                     'pool': 'nova',
+                    'instance_uuid': FAKEUUID,
                     'interface': 'eth0',
                     'network_id': 'blahblah'}
 

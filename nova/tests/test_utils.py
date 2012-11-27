@@ -34,7 +34,9 @@ from nova import test
 from nova import utils
 
 CONF = cfg.CONF
+CONF.import_opt('glance_host', 'nova.config')
 CONF.import_opt('glance_port', 'nova.config')
+CONF.import_opt('glance_protocol', 'nova.config')
 
 
 class ByteConversionTest(test.TestCase):
@@ -73,6 +75,7 @@ class ByteConversionTest(test.TestCase):
 
 
 class ExecuteTestCase(test.TestCase):
+
     def test_retry_on_failure(self):
         fd, tmpfilename = tempfile.mkstemp()
         _, tmpfilename2 = tempfile.mkstemp()
@@ -379,10 +382,16 @@ class GenericUtilsTestCase(test.TestCase):
         self.assertFalse(utils.bool_from_str(None))
         self.assertFalse(utils.bool_from_str('junk'))
 
-    def test_generate_glance_url(self):
+    def test_generate_glance_http_url(self):
         generated_url = utils.generate_glance_url()
-        actual_url = "http://%s:%d" % (CONF.glance_host, CONF.glance_port)
-        self.assertEqual(generated_url, actual_url)
+        http_url = "http://%s:%d" % (CONF.glance_host, CONF.glance_port)
+        self.assertEqual(generated_url, http_url)
+
+    def test_generate_glance_https_url(self):
+        self.flags(glance_protocol="https")
+        generated_url = utils.generate_glance_url()
+        https_url = "https://%s:%d" % (CONF.glance_host, CONF.glance_port)
+        self.assertEqual(generated_url, https_url)
 
     def test_read_cached_file(self):
         self.mox.StubOutWithMock(os.path, "getmtime")
@@ -457,40 +466,6 @@ class GenericUtilsTestCase(test.TestCase):
             with utils.temporary_chown(f.name, owner_uid=2):
                 self.assertEqual(fake_execute.uid, 2)
             self.assertEqual(fake_execute.uid, os.getuid())
-
-    def test_service_is_up(self):
-        fts_func = datetime.datetime.fromtimestamp
-        fake_now = 1000
-        down_time = 5
-
-        self.flags(service_down_time=down_time)
-        self.mox.StubOutWithMock(timeutils, 'utcnow')
-
-        # Up (equal)
-        timeutils.utcnow().AndReturn(fts_func(fake_now))
-        service = {'updated_at': fts_func(fake_now - down_time),
-                   'created_at': fts_func(fake_now - down_time)}
-        self.mox.ReplayAll()
-        result = utils.service_is_up(service)
-        self.assertTrue(result)
-
-        self.mox.ResetAll()
-        # Up
-        timeutils.utcnow().AndReturn(fts_func(fake_now))
-        service = {'updated_at': fts_func(fake_now - down_time + 1),
-                   'created_at': fts_func(fake_now - down_time + 1)}
-        self.mox.ReplayAll()
-        result = utils.service_is_up(service)
-        self.assertTrue(result)
-
-        self.mox.ResetAll()
-        # Down
-        timeutils.utcnow().AndReturn(fts_func(fake_now))
-        service = {'updated_at': fts_func(fake_now - down_time - 1),
-                   'created_at': fts_func(fake_now - down_time - 1)}
-        self.mox.ReplayAll()
-        result = utils.service_is_up(service)
-        self.assertFalse(result)
 
     def test_xhtml_escape(self):
         self.assertEqual('&quot;foo&quot;', utils.xhtml_escape('"foo"'))

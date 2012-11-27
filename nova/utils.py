@@ -59,7 +59,9 @@ CONF = cfg.CONF
 CONF.register_opt(
     cfg.BoolOpt('disable_process_locking', default=False,
                 help='Whether to disable inter-process locks'))
+CONF.import_opt('glance_host', 'nova.config')
 CONF.import_opt('glance_port', 'nova.config')
+CONF.import_opt('glance_protocol', 'nova.config')
 CONF.import_opt('instance_usage_audit_period', 'nova.config')
 CONF.import_opt('monkey_patch', 'nova.config')
 CONF.import_opt('rootwrap_config', 'nova.config')
@@ -905,9 +907,8 @@ def timefunc(func):
 
 def generate_glance_url():
     """Generate the URL to glance."""
-    # TODO(jk0): This will eventually need to take SSL into consideration
-    # when supported in glance.
-    return "http://%s:%d" % (CONF.glance_host, CONF.glance_port)
+    return "%s://%s:%d" % (CONF.glance_protocol, CONF.glance_host,
+                           CONF.glance_port)
 
 
 def generate_image_url(image_ref):
@@ -1031,14 +1032,6 @@ def temporary_mutation(obj, **kwargs):
                 del obj[attr]
             else:
                 setattr(obj, attr, old_value)
-
-
-def service_is_up(service):
-    """Check whether a service is up based on last heartbeat."""
-    last_heartbeat = service['updated_at'] or service['created_at']
-    # Timestamps in DB are UTC.
-    elapsed = total_seconds(timeutils.utcnow() - last_heartbeat)
-    return abs(elapsed) <= CONF.service_down_time
 
 
 def generate_mac_address():

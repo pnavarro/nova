@@ -26,14 +26,16 @@ allowed_updates = ['task_state', 'vm_state', 'expected_task_state',
                    'power_state', 'access_ip_v4', 'access_ip_v6',
                    'launched_at', 'terminated_at', 'host',
                    'memory_mb', 'vcpus', 'root_gb', 'ephemeral_gb',
-                   'instance_type_id',
+                   'instance_type_id', 'root_device_name', 'host',
+                   'progress', 'vm_mode', 'default_ephemeral_device',
+                   'default_swap_device', 'root_device_name',
                    ]
 
 
 class ConductorManager(manager.SchedulerDependentManager):
     """Mission: TBD"""
 
-    RPC_API_VERSION = '1.0'
+    RPC_API_VERSION = '1.1'
 
     def __init__(self, *args, **kwargs):
         super(ConductorManager, self).__init__(service_name='conductor',
@@ -49,3 +51,9 @@ class ConductorManager(manager.SchedulerDependentManager):
             context, instance_uuid, updates)
         notifications.send_update(context, old_ref, instance_ref)
         return jsonutils.to_primitive(instance_ref)
+
+    def migration_update(self, context, migration, status):
+        migration_ref = self.db.migration_update(context.elevated(),
+                                                 migration['id'],
+                                                 {'status': status})
+        return jsonutils.to_primitive(migration_ref)

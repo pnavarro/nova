@@ -9,6 +9,7 @@
     "compute:create:attach_volume": "",
     "compute:create:forced_host": "is_admin:True",
     "compute:get_all": "",
+    "compute:get_all_tenants": "",
 
 
     "admin_api": "is_admin:True",
@@ -47,6 +48,7 @@
     "compute_extension:floating_ip_dns": "",
     "compute_extension:floating_ip_pools": "",
     "compute_extension:floating_ips": "",
+    "compute_extension:floating_ips_bulk": "rule:admin_api",
     "compute_extension:fping": "",
     "compute_extension:fping:all_tenants": "rule:admin_api",
     "compute_extension:hosts": "rule:admin_api",

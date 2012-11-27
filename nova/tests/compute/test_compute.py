@@ -108,6 +108,7 @@ class BaseTestCase(test.TestCase):
                    notification_driver=[test_notifier.__name__],
                    network_manager='nova.network.manager.FlatManager')
         fake.set_nodes([NODENAME])
+        self.flags(use_local=True, group='conductor')
         self.compute = importutils.import_object(CONF.compute_manager)
 
         # override tracker with a version that doesn't need the database:
@@ -510,6 +511,15 @@ class ComputeTestCase(BaseTestCase):
         self.assertRaises(exception.ComputeResourcesUnavailable,
                 self.compute.run_instance, self.context, instance=instance,
                 filter_properties=filter_properties)
+
+    def test_create_instance_without_node_param(self):
+        instance = self._create_fake_instance({'node': None})
+
+        self.compute.run_instance(self.context, instance=instance)
+        instances = db.instance_get_all(self.context)
+        instance = instances[0]
+
+        self.assertEqual(NODENAME, instance['node'])
 
     def test_default_access_ip(self):
         self.flags(default_access_ip_network_name='test1')
@@ -1407,7 +1417,7 @@ class ComputeTestCase(BaseTestCase):
         self.assertTrue('created_at' in payload)
         self.assertTrue('launched_at' in payload)
         self.assertTrue('deleted_at' in payload)
-        self.assertEqual(payload['deleted_at'], str(cur_time))
+        self.assertEqual(payload['deleted_at'], timeutils.strtime(cur_time))
         image_ref_url = utils.generate_image_url(FAKE_IMAGE_REF)
         self.assertEquals(payload['image_ref_url'], image_ref_url)
 
@@ -1755,7 +1765,7 @@ class ComputeTestCase(BaseTestCase):
         self.assertTrue('display_name' in payload)
         self.assertTrue('created_at' in payload)
         self.assertTrue('launched_at' in payload)
-        self.assertEqual(payload['launched_at'], str(cur_time))
+        self.assertEqual(payload['launched_at'], timeutils.strtime(cur_time))
         self.assertEquals(payload['image_ref_url'], new_image_ref_url)
         self.compute.terminate_instance(self.context,
                 instance=jsonutils.to_primitive(inst_ref))
@@ -1806,7 +1816,7 @@ class ComputeTestCase(BaseTestCase):
         self.assertTrue('display_name' in payload)
         self.assertTrue('created_at' in payload)
         self.assertTrue('launched_at' in payload)
-        self.assertEqual(payload['launched_at'], str(cur_time))
+        self.assertEqual(payload['launched_at'], timeutils.strtime(cur_time))
         image_ref_url = utils.generate_image_url(FAKE_IMAGE_REF)
         self.assertEquals(payload['image_ref_url'], image_ref_url)
         self.compute.terminate_instance(self.context,
@@ -2278,6 +2288,12 @@ class ComputeTestCase(BaseTestCase):
 
         self.stubs.Set(cinder.API, 'get', fake_volume_get)
 
+        def fake_instance_update(context, instance_uuid, **updates):
+            return db.instance_update_and_get_original(context, instance_uuid,
+                                                       updates)
+        self.stubs.Set(self.compute, '_instance_update',
+                       fake_instance_update)
+
         # creating mocks
         self.mox.StubOutWithMock(rpc, 'call')
 
@@ -2738,10 +2754,10 @@ class ComputeTestCase(BaseTestCase):
             self.assertEqual(dest_compute, CONF.host)
             return migrations
 
-        def fake_migration_update(context, migration_id, values):
+        def fake_migration_update(context, m, status):
             for migration in migrations:
-                if migration['id'] == migration_id and 'status' in values:
-                    migration['status'] = values['status']
+                if migration['id'] == m['id']:
+                    migration['status'] = status
 
         def fake_confirm_resize(context, instance):
             # raise exception for 'fake_uuid4' to check migration status
@@ -2756,7 +2772,7 @@ class ComputeTestCase(BaseTestCase):
                 fake_instance_get_by_uuid)
         self.stubs.Set(db, 'migration_get_unconfirmed_by_dest_compute',
                 fake_migration_get_unconfirmed_by_dest_compute)
-        self.stubs.Set(db, 'migration_update',
+        self.stubs.Set(self.compute.conductor_api, 'migration_update',
                 fake_migration_update)
         self.stubs.Set(self.compute.compute_api, 'confirm_resize',
                 fake_confirm_resize)
@@ -5838,7 +5854,7 @@ class ComputeRescheduleOrReraiseTestCase(BaseTestCase):
 
         self.mox.ReplayAll()
         self.compute._run_instance(self.context, None, {}, None, None, None,
-                False, self.instance)
+                False, None, self.instance)
 
     def test_deallocate_network_fail(self):
         """Test de-allocation of network failing before re-scheduling logic

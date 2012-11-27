@@ -72,6 +72,7 @@ from nova.openstack.common import timeutils
 from nova.openstack.common import uuidutils
 import nova.policy
 from nova import quota
+from nova import servicegroup
 from nova import utils
 
 
@@ -177,6 +178,9 @@ class RPCAllocateFixedIP(object):
     used since they share code to RPC.call allocate_fixed_ip on the
     correct network host to configure dnsmasq
     """
+
+    servicegroup_api = None
+
     def _allocate_fixed_ips(self, context, instance_id, host, networks,
                             **kwargs):
         """Calls allocate_fixed_ip once for each network."""
@@ -239,7 +243,7 @@ class RPCAllocateFixedIP(object):
             service = self.db.service_get_by_host_and_topic(context,
                                                             host,
                                                             'network')
-            if not service or not utils.service_is_up(service):
+            if not service or not self.servicegroup_api.service_is_up(service):
                 # NOTE(vish): deallocate the fixed ip locally but don't
                 #             teardown network devices
                 return super(RPCAllocateFixedIP, self).deallocate_fixed_ip(
@@ -271,6 +275,9 @@ def check_policy(context, action):
 
 class FloatingIP(object):
     """Mixin class for adding floating IP functionality to a manager."""
+
+    servicegroup_api = None
+
     def init_host_floating_ips(self):
         """Configures floating ips owned by host."""
 
@@ -532,7 +539,8 @@ class FloatingIP(object):
         if host == self.host:
             # i'm the correct host
             self._associate_floating_ip(context, floating_address,
-                                        fixed_address, interface)
+                                        fixed_address, interface,
+                                        fixed_ip['instance_uuid'])
         else:
             # send to correct host
             self.network_rpcapi._associate_floating_ip(context,
@@ -541,7 +549,7 @@ class FloatingIP(object):
         return orig_instance_uuid
 
     def _associate_floating_ip(self, context, floating_address, fixed_address,
-                               interface):
+                               interface, instance_uuid):
         """Performs db and driver calls to associate floating ip & fixed ip"""
         # associate floating ip
         self.db.floating_ip_fixed_ip_associate(context,
@@ -558,7 +566,9 @@ class FloatingIP(object):
             if "Cannot find device" in str(e):
                 LOG.error(_('Interface %(interface)s not found'), locals())
                 raise exception.NoFloatingIpInterface(interface=interface)
+
         payload = dict(project_id=context.project_id,
+                       instance_id=instance_uuid,
                        floating_ip=floating_address)
         notifier.notify(context,
                         notifier.publisher_id("network"),
@@ -597,7 +607,7 @@ class FloatingIP(object):
                                                     fixed_ip['instance_uuid'])
             service = self.db.service_get_by_host_and_topic(
                     context.elevated(), instance['host'], 'network')
-            if service and utils.service_is_up(service):
+            if service and self.servicegroup_api.service_is_up(service):
                 host = instance['host']
             else:
                 # NOTE(vish): if the service is down just deallocate the data
@@ -611,13 +621,15 @@ class FloatingIP(object):
 
         if host == self.host:
             # i'm the correct host
-            self._disassociate_floating_ip(context, address, interface)
+            self._disassociate_floating_ip(context, address, interface,
+                                           fixed_ip['instance_uuid'])
         else:
             # send to correct host
             self.network_rpcapi._disassociate_floating_ip(context, address,
                     interface, host)
 
-    def _disassociate_floating_ip(self, context, address, interface):
+    def _disassociate_floating_ip(self, context, address, interface,
+                                  instance_uuid):
         """Performs db and driver calls to disassociate floating ip"""
         # disassociate floating ip
         fixed_address = self.db.floating_ip_disassociate(context, address)
@@ -625,7 +637,9 @@ class FloatingIP(object):
         if interface:
             # go go driver time
             self.l3driver.remove_floating_ip(address, fixed_address, interface)
-        payload = dict(project_id=context.project_id, floating_ip=address)
+        payload = dict(project_id=context.project_id,
+                       instance_id=instance_uuid,
+                       floating_ip=address)
         notifier.notify(context,
                         notifier.publisher_id("network"),
                         'network.floating_ip.disassociate',
@@ -882,6 +896,7 @@ class NetworkManager(manager.SchedulerDependentManager):
         self.security_group_api = compute_api.SecurityGroupAPI()
         self.compute_api = compute_api.API(
                                    security_group_api=self.security_group_api)
+        self.servicegroup_api = servicegroup.API()
 
         # NOTE(tr3buchet: unless manager subclassing NetworkManager has
         #                 already imported ipam, import nova ipam here
@@ -969,6 +984,19 @@ class NetworkManager(manager.SchedulerDependentManager):
                                                         group_ids)
         self.security_group_api.trigger_handler('security_group_members',
                                                 admin_context, group_ids)
+
+    def _do_trigger_security_group_handler(self, handler, instance_id):
+        admin_context = context.get_admin_context(read_deleted="yes")
+        if uuidutils.is_uuid_like(instance_id):
+            instance_ref = self.db.instance_get_by_uuid(admin_context,
+                                                        instance_id)
+        else:
+            instance_ref = self.db.instance_get(admin_context,
+                                                instance_id)
+        for group_name in [group['name'] for group
+                in instance_ref['security_groups']]:
+            self.security_group_api.trigger_handler(handler, admin_context,
+                    instance_ref, group_name)
 
     def get_floating_ips_by_fixed_address(self, context, fixed_address):
         # NOTE(jkoelker) This is just a stub function. Managers supporting
@@ -1355,6 +1383,8 @@ class NetworkManager(manager.SchedulerDependentManager):
                                                           instance_ref['uuid'])
             self._do_trigger_security_group_members_refresh_for_instance(
                                                                    instance_id)
+            self._do_trigger_security_group_handler(
+                'instance_add_security_group', instance_id)
             get_vif = self.db.virtual_interface_get_by_instance_and_network
             vif = get_vif(context, instance_ref['uuid'], network['id'])
             values = {'allocated': True,
@@ -1384,6 +1414,8 @@ class NetworkManager(manager.SchedulerDependentManager):
 
         self._do_trigger_security_group_members_refresh_for_instance(
             instance['uuid'])
+        self._do_trigger_security_group_handler(
+            'instance_remove_security_group', instance['uuid'])
 
         if self._validate_instance_zone_for_dns_domain(context, instance):
             for n in self.instance_dns_manager.get_entries_by_address(address,

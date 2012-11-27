@@ -37,8 +37,8 @@ from nova.openstack.common import log as logging
 from nova.openstack.common.notifier import api as notifier
 from nova.openstack.common import rpc
 from nova.openstack.common import timeutils
+from nova import servicegroup
 from nova import utils
-
 
 LOG = logging.getLogger(__name__)
 
@@ -87,51 +87,13 @@ def handle_schedule_error(context, ex, instance_uuid, request_spec):
 
 
 def instance_update_db(context, instance_uuid):
-    '''Clear the host and set the scheduled_at field of an Instance.
+    '''Clear the host and node - set the scheduled_at field of an Instance.
 
     :returns: An Instance with the updated fields set properly.
     '''
     now = timeutils.utcnow()
-    values = {'host': None, 'scheduled_at': now}
+    values = {'host': None, 'node': None, 'scheduled_at': now}
     return db.instance_update(context, instance_uuid, values)
-
-
-def db_instance_node_set(context, instance_uuid, node):
-    '''Set the node field of an Instance.
-
-    :returns: An Instance with the updated fields set properly.
-    '''
-    values = {'node': node}
-    return db.instance_update(context, instance_uuid, values)
-
-
-def cast_to_compute_host(context, host, method, **kwargs):
-    """Cast request to a compute host queue"""
-
-    instance_uuid = kwargs.get('instance_uuid', None)
-    if instance_uuid:
-        instance_update_db(context, instance_uuid)
-
-    rpc.cast(context,
-             rpc.queue_get_for(context, CONF.compute_topic, host),
-             {"method": method, "args": kwargs})
-    LOG.debug(_("Casted '%(method)s' to compute '%(host)s'") % locals())
-
-
-def cast_to_host(context, topic, host, method, **kwargs):
-    """Generic cast to host"""
-
-    topic_mapping = {CONF.compute_topic: cast_to_compute_host}
-
-    func = topic_mapping.get(topic)
-    if func:
-        cast_to_compute_host(context, host, method, **kwargs)
-    else:
-        rpc.cast(context,
-                 rpc.queue_get_for(context, topic, host),
-                 {"method": method, "args": kwargs})
-        LOG.debug(_("Casted '%(method)s' to %(topic)s '%(host)s'")
-                % locals())
 
 
 def encode_instance(instance, local=True):
@@ -160,6 +122,7 @@ class Scheduler(object):
                 CONF.scheduler_host_manager)
         self.compute_api = compute_api.API()
         self.compute_rpcapi = compute_rpcapi.ComputeAPI()
+        self.servicegroup_api = servicegroup.API()
 
     def update_service_capabilities(self, service_name, host, capabilities):
         """Process a capability update from a service node."""
@@ -172,7 +135,7 @@ class Scheduler(object):
         services = db.service_get_all_by_topic(context, topic)
         return [service['host']
                 for service in services
-                if utils.service_is_up(service)]
+                if self.servicegroup_api.service_is_up(service)]
 
     def schedule_prep_resize(self, context, image, request_spec,
                              filter_properties, instance, instance_type,
@@ -239,7 +202,7 @@ class Scheduler(object):
             raise exception.ComputeServiceUnavailable(host=src)
 
         # Checking src host is alive.
-        if not utils.service_is_up(services[0]):
+        if not self.servicegroup_api.service_is_up(services[0]):
             raise exception.ComputeServiceUnavailable(host=src)
 
     def _live_migration_dest_check(self, context, instance_ref, dest):
@@ -255,7 +218,7 @@ class Scheduler(object):
         dservice_ref = dservice_refs[0]
 
         # Checking dest host is alive.
-        if not utils.service_is_up(dservice_ref):
+        if not self.servicegroup_api.service_is_up(dservice_ref):
             raise exception.ComputeServiceUnavailable(host=dest)
 
         # Checking whether The host where instance is running
