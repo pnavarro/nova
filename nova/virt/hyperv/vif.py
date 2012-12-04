@@ -24,7 +24,7 @@ CONF = cfg.CONF
 CONF.import_opt('vswitch_name', 'nova.virt.hyperv.vmops')
 
 
-class HypervWindowsVswitchDriver(vif.VIFDriver):
+class HypervVswitchDriver(vif.VIFDriver):
     """VIF driver for Windows vswitch driver"""
 
     def __init__(self):
@@ -41,10 +41,12 @@ class HypervWindowsVswitchDriver(vif.VIFDriver):
         iface_id = mapping['vif_uuid']
         switch_port = self.create_wvs_vif_port(iface_id)
         vnic = self.utils.create_vnic()
-                #Connect the new nic to the new port.
+        mac_address = vif['address'].replace(':', '')
+
+        #Connect the new nic to the new port.
         vnic.Connection = [switch_port]
         vnic.ElementName = iface_id + ' nic'
-        vnic.Address = mapping['mac']
+        vnic.Address = mac_address
         vnic.StaticMacAddress = 'True'
         vnic.VirtualSystemIdentifiers = ['{' + str(uuid.uuid4()) + '}']
         return vnic

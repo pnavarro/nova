@@ -24,6 +24,7 @@ import uuid
 from nova.api.metadata import base as instance_metadata
 from nova import exception
 from nova.openstack.common import cfg
+from nova.openstack.common import importutils
 from nova.openstack.common import lockutils
 from nova.openstack.common import log as logging
 from nova import utils
@@ -53,7 +54,10 @@ hyperv_opts = [
     cfg.BoolOpt('config_drive_cdrom',
                default=False,
                help='Attaches the Config Drive image as a cdrom drive '
-                    'instead of a disk drive')
+                    'instead of a disk drive'),
+    cfg.StrOpt('hyperv_vif_driver',
+               default='nova.virt.hyperv.vif.HypervVswitchDriver',
+               help='The HyperV VIF driver to configure the VIFs.'),
     ]
 
 CONF = cfg.CONF
@@ -67,6 +71,7 @@ class VMOps(baseops.BaseOps):
 
         self._vmutils = vmutils.VMUtils()
         self._volumeops = volumeops
+        self._vif_driver = importutils.import_object(CONF.hyperv_vif_driver)
 
     def list_instances(self):
         """ Return the names of all the instances known to Hyper-V. """
@@ -159,9 +164,11 @@ class VMOps(baseops.BaseOps):
             #A SCSI controller for volumes connection is created
             self._create_scsi_controller(instance['name'])
 
-            for vif in network_info:
-                mac_address = vif['address'].replace(':', '')
-                self._create_nic(instance['name'], mac_address)
+            for (network, mapping) in network_info:
+                #mac_address = vif['address'].replace(':', '')
+                #self._create_nic(instance['name'], mac_address)
+                nic = self.vif_driver.plug(instance, (network, mapping))
+                self._add_nic(instance['name'], nic)
 
             if configdrive.required_by(instance):
                 self._create_config_drive(instance, injected_files,
@@ -410,6 +417,18 @@ class VMOps(baseops.BaseOps):
         #Add the new nic to the vm.
         new_resources = self._vmutils.add_virt_resource(self._conn,
             new_nic_data, vm)
+        if new_resources is None:
+            raise vmutils.HyperVException(_('Failed to add nic to VM %s') %
+                    vm_name)
+        LOG.info(_("Created nic for %s "), vm_name)
+
+    def _add_nic(self, vm_name, nic):
+        LOG.debug(_('Adding nic for %s '), vm_name)
+        #Find the vswitch that is connected to the physical nic.
+        vms = self._conn.Msvm_ComputerSystem(ElementName=vm_name)
+        vm = vms[0]
+        new_resources = self._vmutils.add_virt_resource(self._conn,
+            nic, vm)
         if new_resources is None:
             raise vmutils.HyperVException(_('Failed to add nic to VM %s') %
                     vm_name)
